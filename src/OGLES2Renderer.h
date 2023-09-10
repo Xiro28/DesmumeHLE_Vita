@@ -148,7 +148,7 @@ protected:
 	virtual Render3DError SetupViewport(const POLY *thePoly) = 0;
 	
 public:
-	OpenGLESRenderer();
+	OpenGLESRenderer() {};
 	virtual ~OpenGLESRenderer() {};
 	
 	virtual Render3DError InitExtensions() = 0;
@@ -217,7 +217,7 @@ protected:
 	
 public:
 	OpenGLES2Renderer();
-	~OpenGLES2Renderer();
+	~OpenGLES2Renderer(){};
 	
 	virtual Render3DError InitExtensions();
 	virtual Render3DError Reset();

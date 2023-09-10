@@ -45,19 +45,16 @@ const GLfloat divide5bitBy31_LUT[32]	= {0.0, 0.03225806451613, 0.06451612903226,
 #define RGB15TO32_NOALPHA(col) 
 
 //static OGLVersion _OGLDriverVersion = {0, 0};
-static OpenGLESRenderer *_OGLRenderer = NULL;
+static OpenGLES2Renderer *_OGLRenderer = NULL;
 
 bool BEGINGL()
 {
-	/*if(oglrender_beginOpenGL) 
-		return oglrender_beginOpenGL();
-	else return true;*/
+	return true;
 }
 
 void ENDGL()
 {
-	/*if(oglrender_endOpenGL) 
-		oglrender_endOpenGL();*/
+
 }
 
 //------------------------------------------------------------
@@ -603,7 +600,7 @@ FORCEINLINE u32 RGBA8888_32Rev_To_RGBA6665_32Rev(const u32 srcPix)
 	return ((dstPix >> 1) & 0xFF000000) | (dstPix & 0x00FFFFFF);
 }
 
-void OGLCreateRendererES(OpenGLESRenderer **rendererPtr)
+void OGLCreateRendererES(OpenGLES2Renderer **rendererPtr)
 {
 
 }
@@ -708,7 +705,7 @@ void OpenGLESRenderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *
 	}
 }
 
-OpenGLESRenderer::OpenGLESRenderer()
+OpenGLES2Renderer::OpenGLES2Renderer()
 {
 	isFBOSupported = false;
 	isVAOSupported = false;
@@ -718,7 +715,7 @@ OpenGLESRenderer::OpenGLESRenderer()
 }
 
 
-Render3DError OpenGLESRenderer::InitExtensions()
+Render3DError OpenGLES2Renderer::InitExtensions()
 {
 	Render3DError error = OGLERROR_NOERR;
 	OGLESRenderRef &OGLRef = *this->ref;
@@ -747,8 +744,11 @@ Render3DError OpenGLESRenderer::InitExtensions()
 	this->CreateToonTable();
 	
 	this->CreateVBOs();
-	
+#ifdef __vita__
+	this->isVAOSupported = false;
+#else
 	this->isVAOSupported = this->IsExtensionPresent(&oglExtensionSet, "GL_OES_vertex_array_object");
+#endif
 	if (this->isVAOSupported)
 	{
 		this->CreateVAOs();
@@ -778,7 +778,7 @@ Render3DError OpenGLESRenderer::InitExtensions()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateVBOs()
+Render3DError OpenGLES2Renderer::CreateVBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -795,7 +795,7 @@ Render3DError OpenGLESRenderer::CreateVBOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyVBOs()
+void OpenGLES2Renderer::DestroyVBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -806,7 +806,7 @@ void OpenGLESRenderer::DestroyVBOs()
 	glDeleteBuffers(1, &OGLRef.iboIndexID);
 }
 
-Render3DError OpenGLESRenderer::LoadShaderPrograms(std::string *outVertexShaderProgram, std::string *outFragmentShaderProgram)
+Render3DError OpenGLES2Renderer::LoadShaderPrograms(std::string *outVertexShaderProgram, std::string *outFragmentShaderProgram)
 {
 	outVertexShaderProgram->clear();
 	outFragmentShaderProgram->clear();
@@ -817,7 +817,7 @@ Render3DError OpenGLESRenderer::LoadShaderPrograms(std::string *outVertexShaderP
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupShaderIO()
+Render3DError OpenGLES2Renderer::SetupShaderIO()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -828,7 +828,7 @@ Render3DError OpenGLESRenderer::SetupShaderIO()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderProgram, const std::string *fragmentShaderProgram)
+Render3DError OpenGLES2Renderer::CreateShaders(const std::string *vertexShaderProgram, const std::string *fragmentShaderProgram)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -922,7 +922,7 @@ Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderPro
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyShaders()
+void OpenGLES2Renderer::DestroyShaders()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -938,7 +938,7 @@ void OpenGLESRenderer::DestroyShaders()
 	this->DestroyToonTable();
 }
 
-Render3DError OpenGLESRenderer::CreateVAOs()
+Render3DError OpenGLES2Renderer::CreateVAOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -961,7 +961,7 @@ Render3DError OpenGLESRenderer::CreateVAOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyVAOs()
+void OpenGLES2Renderer::DestroyVAOs()
 {
 	if (!this->isVAOSupported)
 	{
@@ -974,7 +974,7 @@ void OpenGLESRenderer::DestroyVAOs()
 	this->isVAOSupported = false;
 }
 
-Render3DError OpenGLESRenderer::CreateFBOs()
+Render3DError OpenGLES2Renderer::CreateFBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -986,9 +986,10 @@ Render3DError OpenGLESRenderer::CreateFBOs()
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.fboClearImageID);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OGLRef.texClearImageColorID, 0);
+#ifndef __vita__
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID, 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID, 0);
-	
+#endif
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 	{
 		INFO("OpenGLES2: Failed to created FBOs. Some emulation features will be disabled.\n");
@@ -1010,7 +1011,7 @@ Render3DError OpenGLESRenderer::CreateFBOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyFBOs()
+void OpenGLES2Renderer::DestroyFBOs()
 {
 	if (!this->isFBOSupported)
 	{
@@ -1025,7 +1026,7 @@ void OpenGLESRenderer::DestroyFBOs()
 	this->isFBOSupported = false;
 }
 
-Render3DError OpenGLESRenderer::InitFinalRenderStates(const std::set<std::string> *oglExtensionSet)
+Render3DError OpenGLES2Renderer::InitFinalRenderStates(const std::set<std::string> *oglExtensionSet)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1053,14 +1054,14 @@ Render3DError OpenGLESRenderer::InitFinalRenderStates(const std::set<std::string
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::InitTextures()
+Render3DError OpenGLES2Renderer::InitTextures()
 {
 	this->ExpandFreeTextures();
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::InitTables()
+Render3DError OpenGLES2Renderer::InitTables()
 {
 	static bool needTableInit = true;
 	
@@ -1075,7 +1076,7 @@ Render3DError OpenGLESRenderer::InitTables()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateToonTable()
+Render3DError OpenGLES2Renderer::CreateToonTable()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1095,7 +1096,7 @@ Render3DError OpenGLESRenderer::CreateToonTable()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DestroyToonTable()
+Render3DError OpenGLES2Renderer::DestroyToonTable()
 {
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ToonTable);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -1105,7 +1106,7 @@ Render3DError OpenGLESRenderer::DestroyToonTable()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UploadToonTable(const GLuint *toonTableBuffer)
+Render3DError OpenGLES2Renderer::UploadToonTable(const GLuint *toonTableBuffer)
 {
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ToonTable);
 	glBindTexture(GL_TEXTURE_2D, this->ref->texToonTableID);
@@ -1115,7 +1116,7 @@ Render3DError OpenGLESRenderer::UploadToonTable(const GLuint *toonTableBuffer)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateClearImage()
+Render3DError OpenGLES2Renderer::CreateClearImage()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1144,7 +1145,7 @@ Render3DError OpenGLESRenderer::CreateClearImage()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DestroyClearImage()
+Render3DError OpenGLES2Renderer::DestroyClearImage()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1157,7 +1158,7 @@ Render3DError OpenGLESRenderer::DestroyClearImage()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UploadClearImage(const GLushort *clearImageColorBuffer, const GLint *clearImageDepthBuffer)
+Render3DError OpenGLES2Renderer::UploadClearImage(const GLushort *clearImageColorBuffer, const GLint *clearImageDepthBuffer)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1174,7 +1175,7 @@ Render3DError OpenGLESRenderer::UploadClearImage(const GLushort *clearImageColor
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
+void OpenGLES2Renderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
 {
 	std::string oglExtensionString = std::string((const char *)glGetString(GL_EXTENSIONS));
 	
@@ -1198,7 +1199,7 @@ void OpenGLESRenderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
 	INFO("{ ExtensionSet : %s }\n", oglExtensionString.c_str());
 }
 
-Render3DError OpenGLESRenderer::ExpandFreeTextures()
+Render3DError OpenGLES2Renderer::ExpandFreeTextures()
 {
 	static const int kInitTextures = 128;
 	GLuint oglTempTextureID[kInitTextures];
@@ -1212,7 +1213,7 @@ Render3DError OpenGLESRenderer::ExpandFreeTextures()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupVertices(const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList, GLushort *outIndexBuffer, unsigned int *outIndexCount)
+Render3DError OpenGLES2Renderer::SetupVertices(const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList, GLushort *outIndexBuffer, unsigned int *outIndexCount)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	const unsigned int polyCount = polyList->count;
@@ -1251,7 +1252,7 @@ Render3DError OpenGLESRenderer::SetupVertices(const VERTLIST *vertList, const PO
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::EnableVertexAttributes(const VERTLIST *vertList, const GLushort *indexBuffer, const unsigned int vertIndexCount)
+Render3DError OpenGLES2Renderer::EnableVertexAttributes(const VERTLIST *vertList, const GLushort *indexBuffer, const unsigned int vertIndexCount)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1281,7 +1282,7 @@ Render3DError OpenGLESRenderer::EnableVertexAttributes(const VERTLIST *vertList,
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DisableVertexAttributes()
+Render3DError OpenGLES2Renderer::DisableVertexAttributes()
 {
 	if (this->isVAOSupported)
 	{
@@ -1300,7 +1301,7 @@ Render3DError OpenGLESRenderer::DisableVertexAttributes()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SelectRenderingFramebuffer()
+Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 
@@ -1310,7 +1311,7 @@ Render3DError OpenGLESRenderer::SelectRenderingFramebuffer()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ReadBackPixels()
+Render3DError OpenGLES2Renderer::ReadBackPixels()
 {
 	const unsigned int i = this->doubleBufferIndex;
 	
@@ -1319,7 +1320,7 @@ Render3DError OpenGLESRenderer::ReadBackPixels()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DeleteTexture(const TexCacheItem *item)
+Render3DError OpenGLES2Renderer::DeleteTexture(const TexCacheItem *item)
 {
 	this->ref->freeTextureIDs.push((GLuint)item->texid);
 	if(this->currTexture == item)
@@ -1330,7 +1331,7 @@ Render3DError OpenGLESRenderer::DeleteTexture(const TexCacheItem *item)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::BeginRender(const GFX3D_State *renderState)
+Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State *renderState)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	this->doubleBufferIndex = (this->doubleBufferIndex + 1) & 0x01;
@@ -1356,7 +1357,7 @@ Render3DError OpenGLESRenderer::BeginRender(const GFX3D_State *renderState)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError OpenGLES2Renderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	unsigned int vertIndexCount = 0;
@@ -1367,8 +1368,9 @@ Render3DError OpenGLESRenderer::PreRender(const GFX3D_State *renderState, const 
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError OpenGLES2Renderer::DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
+	printf("DoRender called\n");
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 lastTexParams = 0;
 	u32 lastTexPalette = 0;
@@ -1424,6 +1426,7 @@ Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const V
 		
 		// Render the polygon
 		const unsigned int vertIndexCount = indexIncrementLUT[poly->vtxFormat];
+		printf("Drawerino\n");
 		glDrawElements(polyPrimitive, vertIndexCount, GL_UNSIGNED_SHORT, indexBufferPtr);
 		indexBufferPtr += vertIndexCount;
 	}
@@ -1431,14 +1434,14 @@ Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const V
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::PostRender()
+Render3DError OpenGLES2Renderer::PostRender()
 {
 	this->DisableVertexAttributes();
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::EndRender(const u64 frameCount)
+Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 {
 	//needs to happen before endgl because it could free some textureids for expired cache items
 	TexCache_EvictFrame();
@@ -1448,7 +1451,7 @@ Render3DError OpenGLESRenderer::EndRender(const u64 frameCount)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UpdateClearImage(const u16 *__restrict colorBuffer, const u16 *__restrict depthBuffer, const u8 clearStencil, const u8 xScroll, const u8 yScroll)
+Render3DError OpenGLES2Renderer::UpdateClearImage(const u16 *__restrict colorBuffer, const u16 *__restrict depthBuffer, const u8 clearStencil, const u8 xScroll, const u8 yScroll)
 {
 	static const size_t pixelsPerLine = 256;
 	static const size_t lineCount = 192;
@@ -1505,7 +1508,7 @@ Render3DError OpenGLESRenderer::UpdateClearImage(const u16 *__restrict colorBuff
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UpdateToonTable(const u16 *toonTableBuffer)
+Render3DError OpenGLES2Renderer::UpdateToonTable(const u16 *toonTableBuffer)
 {
 	static CACHE_ALIGN u16 currentToonTable16[32] = {0};
 
@@ -1523,7 +1526,7 @@ Render3DError OpenGLESRenderer::UpdateToonTable(const u16 *toonTableBuffer)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ClearUsingImage() const
+Render3DError OpenGLES2Renderer::ClearUsingImage() const
 {
 	static u8 lastClearStencil = 0;
 	
@@ -1550,7 +1553,7 @@ Render3DError OpenGLESRenderer::ClearUsingImage() const
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ClearUsingValues(const u8 r, const u8 g, const u8 b, const u8 a, const u32 clearDepth, const u8 clearStencil) const
+Render3DError OpenGLES2Renderer::ClearUsingValues(const u8 r, const u8 g, const u8 b, const u8 a, const u32 clearDepth, const u8 clearStencil) const
 {
 	static u8 last_r = 0;
 	static u8 last_g = 0;
@@ -1585,7 +1588,7 @@ Render3DError OpenGLESRenderer::ClearUsingValues(const u8 r, const u8 g, const u
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
+Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 {
 	static unsigned int lastTexBlendMode = 0;
 	static int lastStencilState = -1;
@@ -1699,7 +1702,7 @@ Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupTexture(const POLY *thePoly, bool enableTexturing)
+Render3DError OpenGLES2Renderer::SetupTexture(const POLY *thePoly, bool enableTexturing)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	const PolygonTexParams params = thePoly->getTexParams();
@@ -1756,7 +1759,7 @@ Render3DError OpenGLESRenderer::SetupTexture(const POLY *thePoly, bool enableTex
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupViewport(const POLY *thePoly)
+Render3DError OpenGLES2Renderer::SetupViewport(const POLY *thePoly)
 {
 	VIEWPORT viewport;
 	viewport.decode(thePoly->viewport);
@@ -1765,7 +1768,7 @@ Render3DError OpenGLESRenderer::SetupViewport(const POLY *thePoly)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::Reset()
+Render3DError OpenGLES2Renderer::Reset()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1801,7 +1804,7 @@ Render3DError OpenGLESRenderer::Reset()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::RenderFinish()
+Render3DError OpenGLES2Renderer::RenderFinish()
 {
 	const unsigned int i = this->doubleBufferIndex;
 	
@@ -1811,11 +1814,11 @@ Render3DError OpenGLESRenderer::RenderFinish()
 	}
 	
 	OGLESRenderRef &OGLRef = *this->ref;
-	
+#ifndef __vita__	
 	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
 	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
 	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
-	
+#endif	
 	this->gpuScreen3DHasNewData[i] = false;
 	
 	return OGLERROR_NOERR;

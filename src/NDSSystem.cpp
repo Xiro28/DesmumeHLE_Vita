@@ -179,7 +179,7 @@ int NDS_Init()
 	{
 		GPU->FinalizeAndDeallocate();
 	}
-	
+
 	GPU = GPUSubsystem::Allocate(0);
 	
 	if (SPU_Init(SNDCORE_DUMMY, 740) != 0)
@@ -1328,9 +1328,6 @@ void Sequencer::init()
 }
 
 static void * render2D(void *arg) {
-
-	extern void video_DrawFrame();
-
     // Perform rendering operations here
 	const bool skip = frameSkipper.ShouldSkip2D();
 
@@ -1339,7 +1336,6 @@ static void * render2D(void *arg) {
 		GPU->RenderLine<NDSColorFormat_BGR555_Rev>(i, skip);
 	}
 
-	video_DrawFrame();
 	return 0;
 }
 

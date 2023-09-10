@@ -19,12 +19,7 @@
 * Boston, MA 02111-1307, USA.
 */
 
-#include <psp2/ctrl.h>
-#include <psp2/touch.h>
-#include <psp2/display.h>
-#include <psp2/power.h>
-#include <psp2/kernel/processmgr.h>
-#include <psp2/kernel/modulemgr.h>
+#include <vitasdk.h>
 
 #include "video.h"
 #include "input.h"
@@ -45,7 +40,11 @@
 #include "../mic.h"
 #include "../SPU.h"
 
-int _newlib_heap_size_user = 128 * 1024 * 1024;
+extern "C" {
+void vglSwapBuffers(GLboolean has_commondialog);
+};
+
+extern "C" int _newlib_heap_size_user = 256 * 1024 * 1024;
 
 extern "C" GLboolean vglInitExtended(int legacy_pool_size, int width, int height, int ram_threshold, SceGxmMultisampleMode msaa);
 volatile bool execute = FALSE;
@@ -129,7 +128,7 @@ static inline void calc_fps(char fps_str[32])
 }
 
 char fps_str[32] = {0};
-int main()
+void *vita_main(void *argv)
 {
 	vglInitExtended(0, 960, 544, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
 	video_Init(); 
@@ -182,6 +181,9 @@ int main()
 		frames += 1 + UserConfiguration.frameSkip;
 
 		calc_fps(fps_str);
+		
+		video_DrawFrame();
+		vglSwapBuffers(GL_FALSE);
 	}
 
 exit:
@@ -189,4 +191,14 @@ exit:
 
 	sceKernelExitProcess(0);
 	return 0;
+}
+
+int main(int argc, char *argv[]) {
+	sceSysmoduleLoadModule(SCE_SYSMODULE_RAZOR_CAPTURE);
+	pthread_t t;
+	pthread_attr_t attr;
+	pthread_attr_init(&attr);
+	pthread_attr_setstacksize(&attr, 0x400000);
+	pthread_create(&t, &attr, vita_main, NULL);
+	pthread_join(t, NULL);
 }
