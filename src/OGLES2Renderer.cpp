@@ -885,16 +885,19 @@ Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderPro
 	glLinkProgram(OGLRef.shaderProgram);
 	if (!this->ValidateShaderProgramLink(OGLRef.shaderProgram))
 	{
+#ifndef __vita__
 		glDetachShader(OGLRef.shaderProgram, OGLRef.vertexShaderID);
 		glDetachShader(OGLRef.shaderProgram, OGLRef.fragmentShaderID);
+#endif
 		glDeleteProgram(OGLRef.shaderProgram);
 		glDeleteShader(OGLRef.vertexShaderID);
 		glDeleteShader(OGLRef.fragmentShaderID);
 		INFO("OpenGLES2: Failed to link the shader program.\n");
 		return OGLERROR_SHADER_CREATE_ERROR;
 	}
-	
+#ifndef __vita__
 	glValidateProgram(OGLRef.shaderProgram);
+#endif
 	glUseProgram(OGLRef.shaderProgram);
 	
 	// Set up shader uniforms
@@ -924,10 +927,10 @@ void OpenGLESRenderer::DestroyShaders()
 	OGLESRenderRef &OGLRef = *this->ref;
 	
 	glUseProgram(0);
-	
+#ifndef __vita__
 	glDetachShader(OGLRef.shaderProgram, OGLRef.vertexShaderID);
 	glDetachShader(OGLRef.shaderProgram, OGLRef.fragmentShaderID);
-	
+#endif
 	glDeleteProgram(OGLRef.shaderProgram);
 	glDeleteShader(OGLRef.vertexShaderID);
 	glDeleteShader(OGLRef.fragmentShaderID);
