@@ -1,10 +1,16 @@
 DeSmuME(Vita)
 =======
 
-Port of DeSmuME DS Emulator for the Vita.
+Port of DeSmuME DS Emulator for the Vita, based on: https://github.com/masterfeizz/DeSmuME-Vita.
 
-It's currently a fully interpreted DS emulator, which means the performance is not so great.
+It also includes part of MelonDS (arm7 cpu HLE): https://github.com/melonDS-emu/melonDS/commits/melonHLE.
+
+The work that has to be done is still a lot but the performance are promising.
 
 To-do
 ------------------------
-###### To much to be listed
+- A real menu and in game menu.
+- Enable options like savestates and turbo.
+- JIT v2 (with block optimizations: costant pass, dead register pass, etc) 
+
+  a lot more ....
