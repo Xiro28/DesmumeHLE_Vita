@@ -36,6 +36,8 @@ void video_DrawFrame(){
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 512);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192 * 2, 0, GL_RGBA, GL_UNSIGNED_SHORT_1_5_5_5_REV, src);
 	glPixelStorei(GL_UNPACK_ROW_LENGTH, 0);
+	int old_prog;
+	glGetIntegerv(GL_CURRENT_PROGRAM, &old_prog);
 	glUseProgram(0);
 	glEnable(GL_TEXTURE_2D);
 	glMatrixMode(GL_PROJECTION);
@@ -44,10 +46,10 @@ void video_DrawFrame(){
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
 	float vtx[4 * 2] = {
-		0, 544,
-		960, 544,
-		0,   0,
-		960,   0
+		304, 544,
+		304 + 352, 544,
+		304,   0,
+		304 + 352,   0
 	};
 	float txcoord[4 * 2] = {
 		0,   1,
@@ -60,4 +62,5 @@ void video_DrawFrame(){
 	glVertexPointer(2, GL_FLOAT, 0, vtx);
 	glTexCoordPointer(2, GL_FLOAT, 0, txcoord);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glUseProgram(old_prog);
 }

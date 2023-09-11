@@ -488,8 +488,6 @@ extern CACHE_ALIGN const GLfloat divide6bitBy63_LUT[64];
 extern const GLfloat PostprocessVtxBuffer[16];
 extern const GLubyte PostprocessElementBuffer[6];
 
-extern void texDeleteCallback(TexCacheItem *texItem, void *param1, void *param2);
-
 //This is called by OGLRender whenever it initializes.
 //Platforms, please be sure to set this up.
 //return true if you successfully init.

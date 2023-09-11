@@ -128,8 +128,9 @@ static inline void calc_fps(char fps_str[32])
 }
 
 char fps_str[32] = {0};
-void *vita_main(void *argv)
+int main(int argc, char *argv[])
 {
+	sceSysmoduleLoadModule(SCE_SYSMODULE_RAZOR_CAPTURE);
 	vglInitExtended(0, 960, 544, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
 	video_Init(); 
 
@@ -191,14 +192,4 @@ exit:
 
 	sceKernelExitProcess(0);
 	return 0;
-}
-
-int main(int argc, char *argv[]) {
-	sceSysmoduleLoadModule(SCE_SYSMODULE_RAZOR_CAPTURE);
-	pthread_t t;
-	pthread_attr_t attr;
-	pthread_attr_init(&attr);
-	pthread_attr_setstacksize(&attr, 0x400000);
-	pthread_create(&t, &attr, vita_main, NULL);
-	pthread_join(t, NULL);
 }

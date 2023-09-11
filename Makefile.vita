@@ -101,7 +101,7 @@ LIBS = -lvitaGL -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lmathneon -ltaihe
 
 PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc
-CFLAGS  += -O3 -g -march=armv7-a -mfloat-abi=hard -ffast-math -fsingle-precision-constant
+CFLAGS  += -O3 -g -march=armv7-a -mfloat-abi=hard -ffast-math -fsingle-precision-constant -fno-optimize-sibling-calls
 CFLAGS  += -Wl,-q -Wall -D__psp2__ -DVITA $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) -Wfatal-errors -DHAVE_LIBZ -DHAVE_JIT
 ASFLAGS = $(CFLAGS)
 

@@ -579,6 +579,11 @@ static const char *fragmentShader_100 = {"\
 	} \n\
 "};
 
+static void texDeleteCallback(TexCacheItem *item, void *arg0, void *arg1)
+{
+	_OGLRenderer->DeleteTexture(item);
+}
+
 FORCEINLINE u32 RGBA8888_32_To_RGBA6665_32Rev(const u32 srcPix)
 {
 	const u32 dstPix = (srcPix >> 2) & 0x3F3F3F3F;
@@ -605,7 +610,7 @@ void OGLCreateRendererES(OpenGLES2Renderer **rendererPtr)
 
 }
 
-bool OpenGLESRenderer::IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const
+bool OpenGLES2Renderer::IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const
 {
 	if (oglExtensionSet == NULL || oglExtensionSet->size() == 0)
 	{
@@ -615,7 +620,7 @@ bool OpenGLESRenderer::IsExtensionPresent(const std::set<std::string> *oglExtens
 	return (oglExtensionSet->find(extensionName) != oglExtensionSet->end());
 }
 
-bool OpenGLESRenderer::ValidateShaderCompile(GLuint theShader) const
+bool OpenGLES2Renderer::ValidateShaderCompile(GLuint theShader) const
 {
 	bool isCompileValid = false;
 	GLint status = GL_FALSE;
@@ -641,7 +646,7 @@ bool OpenGLESRenderer::ValidateShaderCompile(GLuint theShader) const
 	return isCompileValid;
 }
 
-bool OpenGLESRenderer::ValidateShaderProgramLink(GLuint theProgram) const
+bool OpenGLES2Renderer::ValidateShaderProgramLink(GLuint theProgram) const
 {
 	bool isLinkValid = false;
 	GLint status = GL_FALSE;
@@ -667,16 +672,16 @@ bool OpenGLESRenderer::ValidateShaderProgramLink(GLuint theProgram) const
 	return isLinkValid;
 }
 
-void OpenGLESRenderer::GetVersion(unsigned int *major, unsigned int *minor) const
+void OpenGLES2Renderer::GetVersion(unsigned int *major, unsigned int *minor) const
 {
 }
 
-void OpenGLESRenderer::SetVersion(unsigned int major, unsigned int minor)
+void OpenGLES2Renderer::SetVersion(unsigned int major, unsigned int minor)
 {
 	
 }
 
-void OpenGLESRenderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer)
+void OpenGLES2Renderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer)
 {
 	if (srcBuffer == NULL || dstBuffer == NULL)
 	{
@@ -717,6 +722,7 @@ OpenGLES2Renderer::OpenGLES2Renderer()
 
 Render3DError OpenGLES2Renderer::InitExtensions()
 {
+	printf("InitExntesions\n");
 	Render3DError error = OGLERROR_NOERR;
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1315,7 +1321,10 @@ Render3DError OpenGLES2Renderer::ReadBackPixels()
 {
 	const unsigned int i = this->doubleBufferIndex;
 	
-	this->gpuScreen3DHasNewData[i] = true;
+	OGLESRenderRef &OGLRef = *this->ref;
+	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
+	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
+	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
 	
 	return OGLERROR_NOERR;
 }
@@ -1331,19 +1340,19 @@ Render3DError OpenGLES2Renderer::DeleteTexture(const TexCacheItem *item)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State *renderState)
+Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State &renderState)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	this->doubleBufferIndex = (this->doubleBufferIndex + 1) & 0x01;
 	
 	this->SelectRenderingFramebuffer();
 	
-	glUniform1i(OGLRef.uniformEnableAlphaTest, renderState->enableAlphaTest ? GL_TRUE : GL_FALSE);
-	glUniform1f(OGLRef.uniformAlphaTestRef, divide5bitBy31_LUT[renderState->alphaTestRef]);
-	glUniform1i(OGLRef.uniformToonShadingMode, renderState->shading);
-	glUniform1i(OGLRef.uniformWBuffer, renderState->wbuffer);
+	glUniform1i(OGLRef.uniformEnableAlphaTest, renderState.enableAlphaTest ? GL_TRUE : GL_FALSE);
+	glUniform1f(OGLRef.uniformAlphaTestRef, divide5bitBy31_LUT[renderState.alphaTestRef]);
+	glUniform1i(OGLRef.uniformToonShadingMode, renderState.shading);
+	glUniform1i(OGLRef.uniformWBuffer, renderState.wbuffer);
 	
-	if(renderState->enableAlphaBlending)
+	if(renderState.enableAlphaBlending)
 	{
 		glEnable(GL_BLEND);
 	}
@@ -1359,6 +1368,7 @@ Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State *renderState)
 
 Render3DError OpenGLES2Renderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
+	printf("PreRender called with %u vertices\n", vertList->count);
 	OGLESRenderRef &OGLRef = *this->ref;
 	unsigned int vertIndexCount = 0;
 	
@@ -1368,8 +1378,10 @@ Render3DError OpenGLES2Renderer::PreRender(const GFX3D_State *renderState, const
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLES2Renderer::DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
+	if (polyList->count > 0)
+		this->PreRender(renderState, vertList, polyList, indexList);
 	printf("DoRender called\n");
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 lastTexParams = 0;
@@ -1428,6 +1440,7 @@ Render3DError OpenGLES2Renderer::DoRender(const GFX3D_State *renderState, const 
 		const unsigned int vertIndexCount = indexIncrementLUT[poly->vtxFormat];
 		printf("Drawerino\n");
 		glDrawElements(polyPrimitive, vertIndexCount, GL_UNSIGNED_SHORT, indexBufferPtr);
+		printf("Drawerino end\n");
 		indexBufferPtr += vertIndexCount;
 	}
 	
@@ -1445,6 +1458,8 @@ Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 {
 	//needs to happen before endgl because it could free some textureids for expired cache items
 	TexCache_EvictFrame();
+
+	printf("END\n");
 	
 	this->ReadBackPixels();
 	
@@ -1592,6 +1607,8 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 {
 	static unsigned int lastTexBlendMode = 0;
 	static int lastStencilState = -1;
+
+	printf("SetupPolygon called\n");
 	
 	OGLESRenderRef &OGLRef = *this->ref;
 	const PolygonAttributes attr = thePoly->getAttributes();
@@ -1723,10 +1740,11 @@ Render3DError OpenGLES2Renderer::SetupTexture(const POLY *thePoly, bool enableTe
 	if(newTexture != this->currTexture)
 	{
 		this->currTexture = newTexture;
+
 		//has the ogl renderer initialized the texture?
-		/*if(!this->currTexture->deleteCallback)
+		if(!this->currTexture->GetDeleteCallback())
 		{
-			this->currTexture->deleteCallback = texDeleteCallback;
+			this->currTexture->SetDeleteCallback(texDeleteCallback, 0, 0);
 			
 			if(OGLRef.freeTextureIDs.empty())
 			{
@@ -1747,7 +1765,7 @@ Render3DError OpenGLES2Renderer::SetupTexture(const POLY *thePoly, bool enableTe
 						 this->currTexture->sizeX, this->currTexture->sizeY, 0,
 						 GL_RGBA, GL_UNSIGNED_BYTE, this->currTexture->decoded);
 		}
-		else*/
+		else
 		{
 			//otherwise, just bind it
 			glBindTexture(GL_TEXTURE_2D, (GLuint)this->currTexture->texid);
@@ -1806,7 +1824,7 @@ Render3DError OpenGLES2Renderer::Reset()
 
 Render3DError OpenGLES2Renderer::RenderFinish()
 {
-	const unsigned int i = this->doubleBufferIndex;
+	/*const unsigned int i = this->doubleBufferIndex;
 	
 	if (!this->gpuScreen3DHasNewData[i])
 	{
@@ -1814,14 +1832,28 @@ Render3DError OpenGLES2Renderer::RenderFinish()
 	}
 	
 	OGLESRenderRef &OGLRef = *this->ref;
-#ifndef __vita__	
 	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
 	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
 	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
-#endif	
-	this->gpuScreen3DHasNewData[i] = false;
+	this->gpuScreen3DHasNewData[i] = false;*/
 	
 	return OGLERROR_NOERR;
+}
+
+Render3DError OpenGLES2Renderer::Render(const GFX3D &engine)
+{
+	Render3DError error = RENDER3DERROR_NOERR;
+	
+	error = this->BeginRender(engine.renderState);
+	if (error != RENDER3DERROR_NOERR)
+	{
+		return error;
+	}
+	
+	this->RenderGeometry(&engine.renderState, engine.vertlist, engine.polylist, &engine.indexlist);
+	this->EndRender(engine.render3DFrameCount);
+	
+	return error;
 }
 
 static Render3D* OGLInit()
@@ -1911,6 +1943,7 @@ static Render3D* OGLInit()
 	return _OGLRenderer;
 }
 
+
 static void OGLReset()
 {
 	if(!BEGINGL())
@@ -1938,3 +1971,4 @@ GPU3DInterface gpu3DglES = {
 	OGLInit,
 	OGLClose
 };
+
