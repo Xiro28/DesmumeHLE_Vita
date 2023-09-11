@@ -212,8 +212,8 @@ EXTERNOGLEXT(PFNGLUNMAPBUFFEROESPROC, glUnmapBufferOES)
 enum OGLVertexAttributeID
 {
 	OGLVertexAttributeID_Position	= 0,
-	OGLVertexAttributeID_TexCoord0	= 8,
-	OGLVertexAttributeID_Color		= 3,
+	OGLVertexAttributeID_TexCoord0	= 1,
+	OGLVertexAttributeID_Color		= 2,
 };
 
 enum OGLBindingPointID

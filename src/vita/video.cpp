@@ -29,7 +29,11 @@ void video_BeginDrawing(){
 void video_EndDrawing(){
 }
 
+extern uint32_t top_screen_tex;
+extern uint32_t bottom_screen_tex;
+
 void video_DrawFrame(){
+	glViewport(0, 0, 960, 544);
 	extern char fps_str[32];
 	uint16_t *src = (uint16_t *)GPU->GetDisplayInfo().masterNativeBuffer;
 	glBindTexture(GL_TEXTURE_2D, frame_tex);
@@ -39,6 +43,10 @@ void video_DrawFrame(){
 	int old_prog;
 	glGetIntegerv(GL_CURRENT_PROGRAM, &old_prog);
 	glUseProgram(0);
+	glDisable(GL_BLEND);
+	glDisable(GL_DEPTH_TEST);
+	glDisable(GL_CULL_FACE);
+	glDisable(GL_STENCIL_TEST);
 	glEnable(GL_TEXTURE_2D);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
@@ -57,10 +65,39 @@ void video_DrawFrame(){
 		0,   0,
 		1,   0
 	};
+	float txcoord2[4 * 2] = {
+		0,   0,
+		1,   0,
+		0,   1,
+		1,   1
+	};
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
 	glVertexPointer(2, GL_FLOAT, 0, vtx);
 	glTexCoordPointer(2, GL_FLOAT, 0, txcoord);
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glEnable(GL_BLEND);
+	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+	glBindTexture(GL_TEXTURE_2D, top_screen_tex);
+	float vtx_top[4 * 2] = {
+		304, 272,
+		304 + 352, 272,
+		304,   0,
+		304 + 352,   0
+	};
+	glVertexPointer(2, GL_FLOAT, 0, vtx_top);
+	glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
+	float vtx_bottom[4 * 2] = {
+		304, 544,
+		304 + 352, 544,
+		304,   272,
+		304 + 352,   272
+	};
+	glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
+	glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glUseProgram(old_prog);
+	glEnable(GL_DEPTH_TEST);
 }

@@ -30,6 +30,9 @@
 #include "texcache.h"
 
 
+uint32_t top_screen_fbo, bottom_screen_fbo;
+uint32_t top_screen_tex, bottom_screen_tex;
+
 // Lookup Tables
 CACHE_ALIGN GLuint dsDepthToD24S8_LUT[32768] = {0};
 const GLfloat divide5bitBy31_LUT[32]	= {0.0, 0.03225806451613, 0.06451612903226, 0.09677419354839,
@@ -762,6 +765,22 @@ Render3DError OpenGLES2Renderer::InitExtensions()
 	
 	//this->isFBOSupported	= this->IsExtensionPresent(&oglExtensionSet, "GL_OES_depth_texture") &&
 	//						  this->IsExtensionPresent(&oglExtensionSet, "GL_OES_packed_depth_stencil");
+	
+#ifdef __vita__
+	glGenTextures(1, &top_screen_tex);
+	glGenTextures(1, &bottom_screen_tex);
+	glBindTexture(GL_TEXTURE_2D, top_screen_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glGenFramebuffers(1, &top_screen_fbo);
+	glGenFramebuffers(1, &bottom_screen_fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, top_screen_tex, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, bottom_screen_tex, 0);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
 	this->isFBOSupported = false;
 	if (this->isFBOSupported)
 	{
@@ -1127,8 +1146,9 @@ Render3DError OpenGLES2Renderer::CreateClearImage()
 	OGLESRenderRef &OGLRef = *this->ref;
 	
 	glGenTextures(1, &OGLRef.texClearImageColorID);
+#ifndef __vita__
 	glGenTextures(1, &OGLRef.texClearImageDepthStencilID);
-	
+#endif
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ClearImage);
 	
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageColorID);
@@ -1137,7 +1157,7 @@ Render3DError OpenGLES2Renderer::CreateClearImage()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	
+#ifndef __vita__
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1145,7 +1165,7 @@ Render3DError OpenGLES2Renderer::CreateClearImage()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8_OES, 256, 192, 0, GL_DEPTH_STENCIL_OES, GL_UNSIGNED_INT_24_8_OES, NULL);
-	
+#endif
 	glActiveTexture(GL_TEXTURE0);
 	
 	return OGLERROR_NOERR;
@@ -1310,22 +1330,25 @@ Render3DError OpenGLES2Renderer::DisableVertexAttributes()
 Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
-
+#ifdef __vita__
+	glBindFramebuffer(GL_FRAMEBUFFER, this->doubleBufferIndex ? bottom_screen_fbo : top_screen_fbo);
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+#else
 	OGLRef.selectedRenderingFBO = OGLRef.fboFinalOutputID;
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.selectedRenderingFBO);
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
 Render3DError OpenGLES2Renderer::ReadBackPixels()
 {
 	const unsigned int i = this->doubleBufferIndex;
-	
+#ifndef __vita__
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
 	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
 	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
@@ -1423,7 +1446,7 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		}
 		
 		// Set up the viewport if it changed
-		if(lastViewport != poly->viewport || i == 0)
+		//if(lastViewport != poly->viewport || i == 0)
 		{
 			lastViewport = poly->viewport;
 			this->SetupViewport(poly);
@@ -1438,12 +1461,13 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		
 		// Render the polygon
 		const unsigned int vertIndexCount = indexIncrementLUT[poly->vtxFormat];
-		printf("Drawerino\n");
+		//printf("Drawerino\n");
 		glDrawElements(polyPrimitive, vertIndexCount, GL_UNSIGNED_SHORT, indexBufferPtr);
-		printf("Drawerino end\n");
+		//printf("Drawerino end\n");
 		indexBufferPtr += vertIndexCount;
 	}
 	
+	this->PostRender();
 	return OGLERROR_NOERR;
 }
 
@@ -1462,7 +1486,9 @@ Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 	printf("END\n");
 	
 	this->ReadBackPixels();
-	
+#ifdef __vita__
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
 	return OGLERROR_NOERR;
 }
 
@@ -1608,7 +1634,7 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 	static unsigned int lastTexBlendMode = 0;
 	static int lastStencilState = -1;
 
-	printf("SetupPolygon called\n");
+	//printf("SetupPolygon called\n");
 	
 	OGLESRenderRef &OGLRef = *this->ref;
 	const PolygonAttributes attr = thePoly->getAttributes();
@@ -1772,6 +1798,8 @@ Render3DError OpenGLES2Renderer::SetupTexture(const POLY *thePoly, bool enableTe
 		}
 		
 		glUniform2f(OGLRef.uniformTexScale, this->currTexture->invSizeX, this->currTexture->invSizeY);
+	} else {
+		glBindTexture(GL_TEXTURE_2D, (GLuint)this->currTexture->texid);
 	}
 	
 	return OGLERROR_NOERR;
