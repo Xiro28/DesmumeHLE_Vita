@@ -1425,6 +1425,10 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 {
 	if (polyList->count > 0)
 		this->PreRender(renderState, vertList, polyList, indexList);
+	else {
+		this->PostRender();
+		return OGLERROR_NOERR;
+	}
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 lastTexParams = 0;
 	u32 lastTexPalette = 0;
@@ -1445,6 +1449,10 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 	
 	static const unsigned int indexIncrementLUT[] = {3, 6, 3, 6, 3, 4, 3, 4};
 	
+	int batching = 1;
+	GLushort *batch_start = 0;
+	size_t batched_draws = 0;
+	GLenum lastPolyPrimitive = GL_TRIANGLES;
 	for(unsigned int i = 0; i < polyCount; i++)
 	{
 		const POLY *poly = &polyList->list[indexList->list[i]];
@@ -1452,23 +1460,32 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		// Set up the polygon if it changed
 		if(lastPolyAttr != poly->polyAttr || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastPolyAttr = poly->polyAttr;
 			this->SetupPolygon(poly);
+			batching = 0;
 		}
 		
 		// Set up the texture if it changed
 		if(lastTexParams != poly->texParam || lastTexPalette != poly->texPalette || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastTexParams = poly->texParam;
 			lastTexPalette = poly->texPalette;
 			this->SetupTexture(poly, renderState->enableTexturing);
+			batching = 0;
 		}
 		
 		// Set up the viewport if it changed
-		//if(lastViewport != poly->viewport || i == 0)
+		if(lastViewport != poly->viewport || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastViewport = poly->viewport;
 			this->SetupViewport(poly);
+			batching = 0;
 		}
 		
 		// In wireframe mode, redefine all primitives as GL_LINE_LOOP rather than
@@ -1478,13 +1495,28 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		// extra diagonal line.
 		const GLenum polyPrimitive = !poly->isWireframe() ? oglPrimitiveType[poly->vtxFormat] : GL_LINE_LOOP;
 		
+		if (i == 0) {
+			lastPolyPrimitive = polyPrimitive;
+		} else if (polyPrimitive != lastPolyPrimitive) {
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
+			batching = 0;
+		}
+		
 		// Render the polygon
 		const unsigned int vertIndexCount = indexIncrementLUT[poly->vtxFormat];
-		//printf("Drawerino\n");
-		glDrawElements(polyPrimitive, vertIndexCount, GL_UNSIGNED_SHORT, indexBufferPtr);
-		//printf("Drawerino end\n");
+		if (batching) {
+			batched_draws += vertIndexCount;
+		} else {
+			lastPolyPrimitive = polyPrimitive;
+			batch_start = indexBufferPtr;
+			batched_draws = vertIndexCount;
+			batching = 1;
+		}
 		indexBufferPtr += vertIndexCount;
 	}
+	
+	glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 	
 	this->PostRender();
 	return OGLERROR_NOERR;
