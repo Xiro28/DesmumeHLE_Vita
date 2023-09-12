@@ -696,11 +696,10 @@ void StartScanline(u32 line)
 }
 
 void executeARM7Stuff(){
-    u16 keypad = ~MMU.ARM7_REG[0x136];
-
-    keypad = (keypad & 0x3) << 10;
-    keypad |= ~((u16 *)MMU.ARM9_REG)[0x130>>1] & 0x3FF;
-	_MMU_write16<ARMCPU_ARM7>(0x027FFFA8, keypad);
+    u16 keypad = ((MMU.ARM7_REG[0x136] & 0x3) << 10) | 
+                    ((u16 *)MMU.ARM9_REG)[0x130>>1] & 0x3FF;
+                    
+    _MMU_write16<ARMCPU_ARM7>(0x027FFFA8, keypad);
     Sound_Nitro::Process(1);
 }
 

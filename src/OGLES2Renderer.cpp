@@ -32,6 +32,7 @@
 
 uint32_t top_screen_fbo, bottom_screen_fbo;
 uint32_t top_screen_tex, bottom_screen_tex;
+uint32_t top_changed = 0, bottom_changed = 0;
 
 // Lookup Tables
 CACHE_ALIGN GLuint dsDepthToD24S8_LUT[32768] = {0};
@@ -767,6 +768,8 @@ Render3DError OpenGLES2Renderer::InitExtensions()
 	//						  this->IsExtensionPresent(&oglExtensionSet, "GL_OES_packed_depth_stencil");
 	
 #ifdef __vita__
+	uint32_t renderbuffers[2];
+	glGenRenderbuffers(2, renderbuffers);
 	glGenTextures(1, &top_screen_tex);
 	glGenTextures(1, &bottom_screen_tex);
 	glBindTexture(GL_TEXTURE_2D, top_screen_tex);
@@ -777,8 +780,14 @@ Render3DError OpenGLES2Renderer::InitExtensions()
 	glGenFramebuffers(1, &bottom_screen_fbo);
 	glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, top_screen_tex, 0);
+	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffers[0]);
+	glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0, 256, 192);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffers[0]);
 	glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, bottom_screen_tex, 0);
+	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffers[1]);
+	glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0, 256, 192);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffers[1]);
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
 #endif
 	this->isFBOSupported = false;
@@ -1071,8 +1080,11 @@ Render3DError OpenGLES2Renderer::InitFinalRenderStates(const std::set<std::strin
 	}
 	
 	// Mirrored Repeat Mode Support
+#ifdef __vita__
+	OGLRef.stateTexMirroredRepeat = GL_REPEAT;
+#else
 	OGLRef.stateTexMirroredRepeat = GL_MIRRORED_REPEAT;
-	
+#endif
 	// Always enable depth test, and control using glDepthMask().
 	glEnable(GL_DEPTH_TEST);
 	
@@ -1179,8 +1191,9 @@ Render3DError OpenGLES2Renderer::DestroyClearImage()
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
 	glDeleteTextures(1, &OGLRef.texClearImageColorID);
+#ifndef __vita__
 	glDeleteTextures(1, &OGLRef.texClearImageDepthStencilID);
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
@@ -1192,8 +1205,10 @@ Render3DError OpenGLES2Renderer::UploadClearImage(const GLushort *clearImageColo
 	
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageColorID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, clearImageColorBuffer);
+#ifndef __vita__
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_DEPTH_STENCIL_OES, GL_UNSIGNED_INT_24_8_OES, clearImageDepthBuffer);
+#endif
 	glBindTexture(GL_TEXTURE_2D, 0);
 	
 	glActiveTexture(GL_TEXTURE0);
@@ -1331,8 +1346,14 @@ Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 #ifdef __vita__
-	glBindFramebuffer(GL_FRAMEBUFFER, this->doubleBufferIndex ? bottom_screen_fbo : top_screen_fbo);
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+	if (GPU->GetDisplayMain()->GetEngineID() == GPUEngineID_Main) {
+		glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
+		top_changed = 1;
+	} else {
+		glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
+		bottom_changed = 1;
+	}
+	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 #else
 	OGLRef.selectedRenderingFBO = OGLRef.fboFinalOutputID;
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.selectedRenderingFBO);
@@ -1391,7 +1412,6 @@ Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State &renderState)
 
 Render3DError OpenGLES2Renderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
-	printf("PreRender called with %u vertices\n", vertList->count);
 	OGLESRenderRef &OGLRef = *this->ref;
 	unsigned int vertIndexCount = 0;
 	
@@ -1405,7 +1425,6 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 {
 	if (polyList->count > 0)
 		this->PreRender(renderState, vertList, polyList, indexList);
-	printf("DoRender called\n");
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 lastTexParams = 0;
 	u32 lastTexPalette = 0;
@@ -1482,8 +1501,6 @@ Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 {
 	//needs to happen before endgl because it could free some textureids for expired cache items
 	TexCache_EvictFrame();
-
-	printf("END\n");
 	
 	this->ReadBackPixels();
 #ifdef __vita__
@@ -1727,6 +1744,11 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 	
 	glDepthMask(enableDepthWrite);
 	
+	if (this->toonTableNeedsUpdate) {
+		this->UploadToonTable(this->currentToonTable32);
+		this->toonTableNeedsUpdate = false;
+	}
+	
 	// Set up texture blending mode
 	if(attr.polygonMode != lastTexBlendMode)
 	{
@@ -1735,6 +1757,7 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 		glUniform1i(OGLRef.uniformPolygonMode, attr.polygonMode);
 			
 		// Update the toon table if necessary
+		
 		if (this->toonTableNeedsUpdate && attr.polygonMode == 2)
 		{
 			this->UploadToonTable(this->currentToonTable32);
@@ -1877,7 +1900,7 @@ Render3DError OpenGLES2Renderer::Render(const GFX3D &engine)
 	{
 		return error;
 	}
-	
+
 	this->RenderGeometry(&engine.renderState, engine.vertlist, engine.polylist, &engine.indexlist);
 	this->EndRender(engine.render3DFrameCount);
 	

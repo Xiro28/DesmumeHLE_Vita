@@ -31,6 +31,8 @@ void video_EndDrawing(){
 
 extern uint32_t top_screen_tex;
 extern uint32_t bottom_screen_tex;
+extern uint32_t top_changed;
+extern uint32_t bottom_changed;
 
 void video_DrawFrame(){
 	glViewport(0, 0, 960, 544);
@@ -78,26 +80,32 @@ void video_DrawFrame(){
 	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	glBindTexture(GL_TEXTURE_2D, top_screen_tex);
-	float vtx_top[4 * 2] = {
-		304, 272,
-		304 + 352, 272,
-		304,   0,
-		304 + 352,   0
-	};
-	glVertexPointer(2, GL_FLOAT, 0, vtx_top);
-	glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-	glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
-	float vtx_bottom[4 * 2] = {
-		304, 544,
-		304 + 352, 544,
-		304,   272,
-		304 + 352,   272
-	};
-	glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
-	glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	if (top_changed) {
+		glBindTexture(GL_TEXTURE_2D, top_screen_tex);
+		float vtx_top[4 * 2] = {
+			304, 272,
+			304 + 352, 272,
+			304,   0,
+			304 + 352,   0
+		};
+		glVertexPointer(2, GL_FLOAT, 0, vtx_top);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		top_changed = 0;
+	}
+	if (bottom_changed) {
+		glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
+		float vtx_bottom[4 * 2] = {
+			304, 544,
+			304 + 352, 544,
+			304,   272,
+			304 + 352,   272
+		};
+		glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		bottom_changed = 0;
+	}
 	glUseProgram(old_prog);
 	glEnable(GL_DEPTH_TEST);
 }
