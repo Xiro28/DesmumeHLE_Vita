@@ -36,6 +36,7 @@ extern uint32_t bottom_changed;
 
 void video_DrawFrame(){
 	glViewport(0, 0, 960, 544);
+	glClear(GL_COLOR_BUFFER_BIT);
 	extern char fps_str[32];
 	uint16_t *src = (uint16_t *)GPU->GetDisplayInfo().masterNativeBuffer;
 	glBindTexture(GL_TEXTURE_2D, frame_tex);

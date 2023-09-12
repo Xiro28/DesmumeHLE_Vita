@@ -93,7 +93,7 @@ LIBRETRO_SOURCES += \
 
 OBJS = $(DESMUME_SOURCES:%.cpp=$(SOURCE_DIR)/%.o) $(FRONTEND_SOURCES:%.cpp=$(SOURCE_DIR)/%.o) $(LIBRETRO_SOURCES:%.c=$(SOURCE_DIR)/%.o)
 
-LIBS = -lvitaGL -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lmathneon -ltaihen_stub \
+LIBS = -limgui -lvitaGL -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lmathneon -ltaihen_stub \
 	-lSceLibKernel_stub -lSceKernelDmacMgr_stub -lSceDisplay_stub -lSceGxm_stub -lSceNet_stub \
 	-lSceSysmodule_stub -lSceCtrl_stub -lSceTouch_stub -lScePgf_stub -lSceAudio_stub \
 	-lSceCommonDialog_stub -lScePower_stub -lfreetype -lpng -ljpeg -lz -lm -lc -lstdc++ \
