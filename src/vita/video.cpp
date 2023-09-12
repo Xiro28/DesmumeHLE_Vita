@@ -91,7 +91,7 @@ void video_DrawFrame(){
 		glVertexPointer(2, GL_FLOAT, 0, vtx_top);
 		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		top_changed = 0;
+		top_changed--;
 	}
 	if (bottom_changed) {
 		glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
@@ -104,7 +104,7 @@ void video_DrawFrame(){
 		glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
 		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		bottom_changed = 0;
+		bottom_changed--;
 	}
 	glUseProgram(old_prog);
 	glEnable(GL_DEPTH_TEST);

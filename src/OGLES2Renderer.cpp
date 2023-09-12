@@ -1348,10 +1348,10 @@ Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 #ifdef __vita__
 	if (GPU->GetDisplayMain()->GetEngineID() == GPUEngineID_Main) {
 		glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
-		top_changed = 1;
+		top_changed = 3;
 	} else {
 		glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
-		bottom_changed = 1;
+		bottom_changed = 3;
 	}
 	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 #else
