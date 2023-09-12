@@ -1449,7 +1449,7 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 	
 	static const unsigned int indexIncrementLUT[] = {3, 6, 3, 6, 3, 4, 3, 4};
 	
-	int batching = 1;
+	int batching = 0;
 	GLushort *batch_start = 0;
 	size_t batched_draws = 0;
 	GLenum lastPolyPrimitive = GL_TRIANGLES;
@@ -1495,9 +1495,7 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		// extra diagonal line.
 		const GLenum polyPrimitive = !poly->isWireframe() ? oglPrimitiveType[poly->vtxFormat] : GL_LINE_LOOP;
 		
-		if (i == 0) {
-			lastPolyPrimitive = polyPrimitive;
-		} else if (polyPrimitive != lastPolyPrimitive) {
+		if (polyPrimitive != lastPolyPrimitive) {
 			if (batching)
 				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			batching = 0;
