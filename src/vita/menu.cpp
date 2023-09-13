@@ -29,6 +29,7 @@ char *menu_FileBrowser() {
 	ImGui_ImplVitaGL_TouchUsage(false);
 	ImGui_ImplVitaGL_GamepadUsage(true);
 	ImGui_ImplVitaGL_MouseStickUsage(false);
+	ImGui::GetIO().MouseDrawCursor = false;
 	
 	SceUID fd = sceIoDopen("ux0:data/desmume");
 	SceIoDirent g_dir;
