@@ -84,397 +84,6 @@ void OGLESLoadEntryPoints()
 	INITOGLEXT(PFNGLUNMAPBUFFEROESPROC, glUnmapBufferOES)
 }
 
-// Vertex shader for geometry, GLSL 1.50
-static const char *GeometryVtxShader_150 = {"\
-	#version 150 \n\
-	\n\
-	in vec4 inPosition; \n\
-	in vec2 inTexCoord0; \n\
-	in vec3 inColor; \n\
-	\n\
-	uniform usamplerBuffer PolyStates;\n\
-	uniform int polyIndex;\n\
-	\n\
-	out vec4 vtxPosition; \n\
-	out vec2 vtxTexCoord; \n\
-	out vec4 vtxColor; \n\
-	flat out uint polyEnableTexture;\n\
-	flat out uint polyEnableFog;\n\
-	flat out uint polyEnableDepthWrite;\n\
-	flat out uint polySetNewDepthForTranslucent;\n\
-	flat out uint polyMode;\n\
-	flat out uint polyID;\n\
-	flat out uint texSingleBitAlpha;\n\
-	\n\
-	void main() \n\
-	{ \n\
-		uvec4 polyStateFlags = texelFetch(PolyStates, (polyIndex*3)+0);\n\
-		uvec4 polyStateValues = texelFetch(PolyStates, (polyIndex*3)+1);\n\
-		uvec4 polyStateTexParams = texelFetch(PolyStates, (polyIndex*3)+2);\n\
-		\n\
-		float polyAlpha = float(polyStateValues[0]) / 31.0;\n\
-		vec2 polyTexScale = vec2(1.0 / float(8 << polyStateTexParams[0]), 1.0 / float(8 << polyStateTexParams[1]));\n\
-		\n\
-		polyEnableTexture = polyStateFlags[0];\n\
-		polyEnableFog = polyStateFlags[1];\n\
-		polyEnableDepthWrite = polyStateFlags[2];\n\
-		polySetNewDepthForTranslucent = polyStateFlags[3];\n\
-		polyMode = polyStateValues[1];\n\
-		polyID = polyStateValues[2];\n\
-		texSingleBitAlpha = polyStateTexParams[2];\n\
-		\n\
-		mat2 texScaleMtx	= mat2(	vec2(polyTexScale.x,            0.0), \n\
-									vec2(           0.0, polyTexScale.y)); \n\
-		\n\
-		vtxPosition = inPosition; \n\
-		vtxTexCoord = texScaleMtx * inTexCoord0; \n\
-		vtxColor = vec4(inColor * 4.0, polyAlpha); \n\
-		\n\
-		gl_Position = vtxPosition; \n\
-	} \n\
-"};
-
-// Fragment shader for geometry, GLSL 1.50
-static const char *GeometryFragShader_150 = {"\
-	#version 150 \n\
-	\n\
-	in vec4 vtxPosition; \n\
-	in vec2 vtxTexCoord; \n\
-	in vec4 vtxColor; \n\
-	flat in uint polyEnableTexture;\n\
-	flat in uint polyEnableFog;\n\
-	flat in uint polyEnableDepthWrite;\n\
-	flat in uint polySetNewDepthForTranslucent;\n\
-	flat in uint polyMode;\n\
-	flat in uint polyID;\n\
-	flat in uint texSingleBitAlpha;\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texRenderObject; \n\
-	uniform usamplerBuffer PolyStates;\n\
-	uniform int polyIndex;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	out vec4 outFragDepth;\n\
-	out vec4 outPolyID;\n\
-	out vec4 outFogAttributes;\n\
-	\n\
-	vec3 packVec3FromFloat(const float value)\n\
-	{\n\
-		float expandedValue = value * 16777215.0;\n\
-		vec3 packedValue = vec3( fract(expandedValue/256.0), fract(((expandedValue/256.0) - fract(expandedValue/256.0)) / 256.0), fract(((expandedValue/65536.0) - fract(expandedValue/65536.0)) / 256.0) );\n\
-		return packedValue;\n\
-	}\n\
-	\n\
-	void main() \n\
-	{ \n\
-		vec4 mainTexColor = bool(polyEnableTexture) ? texture(texRenderObject, vtxTexCoord) : vec4(1.0, 1.0, 1.0, 1.0);\n\
-		\n\
-		if (bool(texSingleBitAlpha))\n\
-		{\n\
-			if (mainTexColor.a < 0.500)\n\
-			{\n\
-				mainTexColor.a = 0.0;\n\
-			}\n\
-			else\n\
-			{\n\
-				mainTexColor.rgb = mainTexColor.rgb / mainTexColor.a;\n\
-				mainTexColor.a = 1.0;\n\
-			}\n\
-		}\n\
-		\n\
-		vec4 newFragColor = mainTexColor * vtxColor; \n\
-		\n\
-		if (polyMode == 1u) \n\
-		{ \n\
-			newFragColor.rgb = bool(polyEnableTexture) ? mix(vtxColor.rgb, mainTexColor.rgb, mainTexColor.a) : vtxColor.rgb;\n\
-			newFragColor.a = vtxColor.a; \n\
-		} \n\
-		else if (polyMode == 2u) \n\
-		{ \n\
-			vec3 newToonColor = state.toonColor[int((vtxColor.r * 31.0) + 0.5)].rgb;\n\
-			newFragColor.rgb = (state.toonShadingMode == 0) ? mainTexColor.rgb * newToonColor.rgb : min((mainTexColor.rgb * vtxColor.r) + newToonColor.rgb, 1.0); \n\
-		} \n\
-		else if (polyMode == 3u) \n\
-		{ \n\
-			if (polyID != 0u) \n\
-			{ \n\
-				newFragColor = vtxColor; \n\
-			} \n\
-		} \n\
-		\n\
-		if (newFragColor.a < 0.001 || (state.enableAlphaTest && newFragColor.a < state.alphaTestRef))\n\
-		{\n\
-			discard;\n\
-		}\n\
-		\n\
-		float vertW = (vtxPosition.w == 0.0) ? 0.00000001 : vtxPosition.w; \n\
-		// hack: when using z-depth, drop some LSBs so that the overworld map in Dragon Quest IV shows up correctly\n\
-		float newFragDepth = (state.useWDepth) ? vtxPosition.w/4096.0 : clamp( (floor((((vtxPosition.z/vertW) * 0.5 + 0.5) * 16777215.0) / 4.0) * 4.0) / 16777215.0, 0.0, 1.0); \n\
-		\n\
-		outFragColor = newFragColor;\n\
-		outFragDepth = vec4( packVec3FromFloat(newFragDepth), float(bool(polyEnableDepthWrite) && (newFragColor.a > 0.999 || bool(polySetNewDepthForTranslucent))));\n\
-		outPolyID = vec4(float(polyID)/63.0, 0.0, 0.0, float(newFragColor.a > 0.999));\n\
-		outFogAttributes = vec4(float(polyEnableFog), 0.0, 0.0, float((newFragColor.a > 0.999) ? 1.0 : 0.5));\n\
-		gl_FragDepth = newFragDepth;\n\
-	} \n\
-"};
-
-// Vertex shader for applying edge marking, GLSL 1.50
-static const char *EdgeMarkVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	out vec2 texCoord[5];\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec2 texInvScale = vec2(1.0/state.framebufferSize.x, 1.0/state.framebufferSize.y);\n\
-		\n\
-		texCoord[0] = inTexCoord0; // Center\n\
-		texCoord[1] = inTexCoord0 + (vec2( 1.0, 0.0) * texInvScale); // Right\n\
-		texCoord[2] = inTexCoord0 + (vec2( 0.0, 1.0) * texInvScale); // Down\n\
-		texCoord[3] = inTexCoord0 + (vec2(-1.0, 0.0) * texInvScale); // Left\n\
-		texCoord[4] = inTexCoord0 + (vec2( 0.0,-1.0) * texInvScale); // Up\n\
-		\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for applying edge marking, GLSL 1.50
-static const char *EdgeMarkFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord[5];\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texInFragDepth;\n\
-	uniform sampler2D texInPolyID;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	float unpackFloatFromVec3(const vec3 value)\n\
-	{\n\
-		const vec3 unpackRatio = vec3(256.0, 65536.0, 16777216.0);\n\
-		return (dot(value, unpackRatio) / 16777215.0);\n\
-	}\n\
-	\n\
-	void main()\n\
-	{\n\
-		int polyID[5];\n\
-		polyID[0] = int((texture(texInPolyID, texCoord[0]).r * 63.0) + 0.5);\n\
-		polyID[1] = int((texture(texInPolyID, texCoord[1]).r * 63.0) + 0.5);\n\
-		polyID[2] = int((texture(texInPolyID, texCoord[2]).r * 63.0) + 0.5);\n\
-		polyID[3] = int((texture(texInPolyID, texCoord[3]).r * 63.0) + 0.5);\n\
-		polyID[4] = int((texture(texInPolyID, texCoord[4]).r * 63.0) + 0.5);\n\
-		\n\
-		float depth[5];\n\
-		depth[0] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[0]).rgb);\n\
-		depth[1] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[1]).rgb);\n\
-		depth[2] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[2]).rgb);\n\
-		depth[3] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[3]).rgb);\n\
-		depth[4] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[4]).rgb);\n\
-		\n\
-		vec4 newEdgeColor = vec4(0.0, 0.0, 0.0, 0.0);\n\
-		\n\
-		for (int i = 1; i < 5; i++)\n\
-		{\n\
-			if (polyID[0] != polyID[i] && depth[0] >= depth[i])\n\
-			{\n\
-				newEdgeColor = state.edgeColor[polyID[i]/8];\n\
-				break;\n\
-			}\n\
-		}\n\
-		\n\
-		outFragColor = newEdgeColor;\n\
-	}\n\
-"};
-
-// Vertex shader for applying fog, GLSL 1.50
-static const char *FogVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	out vec2 texCoord;\n\
-	\n\
-	void main()\n\
-	{\n\
-		texCoord = inTexCoord0;\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for applying fog, GLSL 1.50
-static const char *FogFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord;\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texInFragColor;\n\
-	uniform sampler2D texInFragDepth;\n\
-	uniform sampler2D texInFogAttributes;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	float unpackFloatFromVec3(const vec3 value)\n\
-	{\n\
-		const vec3 unpackRatio = vec3(256.0, 65536.0, 16777216.0);\n\
-		return (dot(value, unpackRatio) / 16777215.0);\n\
-	}\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec4 inFragColor = texture(texInFragColor, texCoord);\n\
-		vec4 inFogAttributes = texture(texInFogAttributes, texCoord);\n\
-		bool polyEnableFog = (inFogAttributes.r > 0.999);\n\
-		vec4 newFoggedColor = inFragColor;\n\
-		\n\
-		if (polyEnableFog)\n\
-		{\n\
-			float inFragDepth = unpackFloatFromVec3(texture(texInFragDepth, texCoord).rgb);\n\
-			float fogMixWeight = 0.0;\n\
-			\n\
-			if (inFragDepth <= min(state.fogOffset + state.fogStep, 1.0))\n\
-			{\n\
-				fogMixWeight = state.fogDensity[0];\n\
-			}\n\
-			else if (inFragDepth >= min(state.fogOffset + (state.fogStep*32.0), 1.0))\n\
-			{\n\
-				fogMixWeight = state.fogDensity[31];\n\
-			}\n\
-			else\n\
-			{\n\
-				for (int i = 1; i < 32; i++)\n\
-				{\n\
-					float currentFogStep = min(state.fogOffset + (state.fogStep * float(i+1)), 1.0);\n\
-					if (inFragDepth <= currentFogStep)\n\
-					{\n\
-						float previousFogStep = min(state.fogOffset + (state.fogStep * float(i)), 1.0);\n\
-						fogMixWeight = mix(state.fogDensity[i-1], state.fogDensity[i], (inFragDepth - previousFogStep) / (currentFogStep - previousFogStep));\n\
-						break;\n\
-					}\n\
-				}\n\
-			}\n\
-			\n\
-			newFoggedColor = mix(inFragColor, (state.enableFogAlphaOnly) ? vec4(inFragColor.rgb, state.fogColor.a) : state.fogColor, fogMixWeight);\n\
-		}\n\
-		\n\
-		outFragColor = newFoggedColor;\n\
-	}\n\
-"};
-
-// Vertex shader for the final framebuffer, GLSL 1.50
-static const char *FramebufferOutputVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	out vec2 texCoord;\n\
-	\n\
-	void main()\n\
-	{\n\
-		texCoord = inTexCoord0;\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for the final framebuffer, GLSL 1.50
-static const char *FramebufferOutputFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord;\n\
-	\n\
-	uniform sampler2D texInFragColor;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec4 colorRGBA6665 = texture(texInFragColor, texCoord);\n\
-		colorRGBA6665     = floor((colorRGBA6665 * 255.0) + 0.5);\n\
-		colorRGBA6665.rgb = floor(colorRGBA6665.rgb / 4.0);\n\
-		colorRGBA6665.a   = floor(colorRGBA6665.a   / 8.0);\n\
-		\n\
-		outFragColor = (colorRGBA6665 / 255.0);\n\
-	}\n\
-"};
-
 // Vertex Shader GLSL 1.00
 static const char *vertexShader_100 = {"\
 	attribute vec4 inPosition; \n\
@@ -1353,7 +962,6 @@ Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 		glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
 		bottom_changed = 3;
 	}
-	glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT | GL_STENCIL_BUFFER_BIT);
 #else
 	OGLRef.selectedRenderingFBO = OGLRef.fboFinalOutputID;
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.selectedRenderingFBO);
@@ -1495,7 +1103,7 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 		// extra diagonal line.
 		const GLenum polyPrimitive = !poly->isWireframe() ? oglPrimitiveType[poly->vtxFormat] : GL_LINE_LOOP;
 		
-		if (polyPrimitive != lastPolyPrimitive) {
+		if (polyPrimitive != lastPolyPrimitive || polyPrimitive != GL_TRIANGLES) {
 			if (batching)
 				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			batching = 0;
@@ -1774,11 +1382,6 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 	
 	glDepthMask(enableDepthWrite);
 	
-	if (this->toonTableNeedsUpdate) {
-		this->UploadToonTable(this->currentToonTable32);
-		this->toonTableNeedsUpdate = false;
-	}
-	
 	// Set up texture blending mode
 	if(attr.polygonMode != lastTexBlendMode)
 	{
@@ -1930,7 +1533,22 @@ Render3DError OpenGLES2Renderer::Render(const GFX3D &engine)
 	{
 		return error;
 	}
+	
+	struct GFX3D_ClearColor
+	{
+		u8 r;
+		u8 g;
+		u8 b;
+		u8 a;
+	} clearColor;
+	
+	clearColor.r = engine.renderState.clearColor & 0x1F;
+	clearColor.g = (engine.renderState.clearColor >> 5) & 0x1F;
+	clearColor.b = (engine.renderState.clearColor >> 10) & 0x1F;
+	clearColor.a = (engine.renderState.clearColor >> 16) & 0x1F;
+	const u8 polyID = (engine.renderState.clearColor >> 24) & 0x3F;
 
+	this->ClearUsingValues(clearColor.r, clearColor.g, clearColor.b, clearColor.a, engine.renderState.clearDepth, polyID);
 	this->RenderGeometry(&engine.renderState, engine.vertlist, engine.polylist, &engine.indexlist);
 	this->EndRender(engine.render3DFrameCount);
 	
