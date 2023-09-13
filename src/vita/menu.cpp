@@ -33,10 +33,12 @@ char *menu_FileBrowser() {
 	SceUID fd = sceIoDopen("ux0:data/desmume");
 	SceIoDirent g_dir;
 	while (sceIoDread(fd, &g_dir) > 0) {
-		game_entry *entry = (game_entry *)malloc(sizeof(game_entry));
-		strcpy(entry->name, g_dir.d_name);
-		entry->next = list;
-		list = entry;
+		if (!strcmp(&g_dir.d_name[strlen(g_dir.d_name) - 4], ".nds")) {
+			game_entry *entry = (game_entry *)malloc(sizeof(game_entry));
+			strcpy(entry->name, g_dir.d_name);
+			entry->next = list;
+			list = entry;
+		}
 	}
 	sceIoDclose(fd);
 	
