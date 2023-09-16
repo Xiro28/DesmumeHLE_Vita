@@ -23,6 +23,7 @@
 #include <string.h>
 #include <algorithm>
 
+#include "vita/config.h"
 #include "common.h"
 #include "debug.h"
 #include "gfx3d.h"
@@ -1061,6 +1062,7 @@ Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, 
 	GLushort *batch_start = 0;
 	size_t batched_draws = 0;
 	GLenum lastPolyPrimitive = GL_TRIANGLES;
+
 	for(unsigned int i = 0; i < polyCount; i++)
 	{
 		const POLY *poly = &polyList->list[indexList->list[i]];
@@ -1140,9 +1142,10 @@ Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 	//needs to happen before endgl because it could free some textureids for expired cache items
 	TexCache_EvictFrame();
 	
-	this->ReadBackPixels();
 #ifdef __vita__
 	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
+	this->ReadBackPixels();
 #endif
 	return OGLERROR_NOERR;
 }
@@ -1302,21 +1305,19 @@ Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 	glUniform1f(OGLRef.uniformPolyAlpha, thePolyAlpha);
 	
 	// Set up depth test mode
-	static const GLenum oglDepthFunc[2] = {GL_LESS, GL_EQUAL};
+	static const GLenum oglDepthFunc[2] = {launched_rom->opt.depth_resolve_mode ? GL_LEQUAL : GL_LESS, GL_EQUAL};
 	glDepthFunc(oglDepthFunc[attr.enableDepthEqualTest]);
 	
 	// Set up culling mode
-	static const GLenum oglCullingMode[4] = {GL_FRONT_AND_BACK, GL_FRONT, GL_BACK, 0};
-	GLenum cullingMode = oglCullingMode[attr.surfaceCullingMode];
-	
-	if (cullingMode == 0)
+	if (attr.surfaceCullingMode == 3)
 	{
 		glDisable(GL_CULL_FACE);
 	}
 	else
 	{
+		static const GLenum oglCullingMode[3] = {GL_FRONT_AND_BACK, GL_FRONT, GL_BACK};
 		glEnable(GL_CULL_FACE);
-		glCullFace(cullingMode);
+		glCullFace(oglCullingMode[attr.surfaceCullingMode]);
 	}
 	
 	// Set up depth write

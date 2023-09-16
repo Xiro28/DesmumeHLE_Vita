@@ -44,7 +44,7 @@ extern "C" {
 void vglSwapBuffers(GLboolean has_commondialog);
 };
 
-extern "C" int _newlib_heap_size_user = 256 * 1024 * 1024;
+extern "C" int _newlib_heap_size_user = 128 * 1024 * 1024;
 
 extern "C" GLboolean vglInitExtended(int legacy_pool_size, int width, int height, int ram_threshold, SceGxmMultisampleMode msaa);
 volatile bool execute = FALSE;
@@ -81,7 +81,7 @@ static void desmume_cycle()
 
     NDS_exec<false>();
 
-    if(UserConfiguration.soundEnabled)
+    if (launched_rom->opt.has_sound)
     	SPU_Emulate_user();
 }
 
@@ -152,7 +152,7 @@ int main(int argc, char *argv[])
 	NDS_3D_ChangeCore(2);
 	backup_setManualBackupType(0);
 
-	if(UserConfiguration.jitEnabled){
+	if (launched_rom->opt.has_dynarec) {
 		CommonSettings.use_jit = true;
 		CommonSettings.jit_max_block_size = 100; // Some games can be higher but let's not make it even more unstable
 	}
@@ -165,21 +165,21 @@ int main(int argc, char *argv[])
 
 	int i;
 
-	if(UserConfiguration.soundEnabled)
+	if (launched_rom->opt.has_sound)
 		SPU_ChangeSoundCore(SNDCORE_VITA, 735 * 4);
 
 	while (execute) {
 
 		frame_time = sceKernelGetProcessTimeLow();
 
-		for (i = 0; i < UserConfiguration.frameSkip; i++) {
+		for (i = 0; i < launched_rom->opt.frameskip; i++) {
 			NDS_SkipNextFrame();
 			desmume_cycle();
 		}
 
 		desmume_cycle();
 
-		frames += 1 + UserConfiguration.frameSkip;
+		frames += 1 + launched_rom->opt.frameskip;
 
 		calc_fps(fps_str);
 		

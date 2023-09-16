@@ -26,8 +26,8 @@
 
 int getOnlineCores (void)
 {
-	if(UserConfiguration.threadedRendering)
-		return 4;
+	//if(UserConfiguration.threadedRendering)
+	//	return 4;
 	
 	return 1;
 }

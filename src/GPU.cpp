@@ -7384,7 +7384,7 @@ void GPUSubsystem::RenderLine(const u16 l, bool isFrameSkipRequested)
 		// means that we need to check the states at that particular time to ensure that the 3D renderer
 		// finishes before we read the 3D framebuffer. Otherwise, the map will render incorrectly.
 		
-		if (CurrentRenderer->GetRenderNeedsFinish())
+		/*if (CurrentRenderer->GetRenderNeedsFinish())
 		{
 			const bool need3DDisplayFramebuffer = this->_engineMain->WillRender3DLayer();
 			const bool need3DCaptureFramebuffer = this->_engineMain->WillCapture3DLayerDirect(l);
@@ -7396,7 +7396,7 @@ void GPUSubsystem::RenderLine(const u16 l, bool isFrameSkipRequested)
 				CurrentRenderer->SetRenderNeedsFinish(false);
 				this->_event->DidRender3DEnd();
 			}
-		}
+		}*/
 		
 		this->_engineMain->RenderLine<OUTPUTFORMAT>(l);
 	}

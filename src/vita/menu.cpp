@@ -15,13 +15,48 @@
 
 #include "../NDSSystem.h"
 
-typedef struct game_entry {
-	char name[256];
-	struct game_entry *next;
-} game_entry;
-
 game_entry *list = NULL;
 
+void load_cfg(const char *cfg, game_options *opt) {
+	char buffer[128];
+	int value;
+	FILE *config = fopen(cfg, "r");
+	
+	// Default values
+	opt->threaded_2d_render = 1;
+	opt->depth_resolve_mode = 0;
+	opt->has_dynarec = 1;
+	opt->has_sound = 1;
+	opt->frameskip = 1;
+
+	if (config) {
+		while (EOF != fscanf(config, "%[^=]=%d\n", buffer, &value)) {
+			if (strcmp("threaded_2d_render", buffer) == 0) opt->threaded_2d_render = value;
+			else if (strcmp("depth_resolve_mode", buffer) == 0) opt->depth_resolve_mode = value;
+			else if (strcmp("has_dynarec", buffer) == 0) opt->has_dynarec = value;
+			else if (strcmp("has_sound", buffer) == 0) opt->has_sound = value;
+			else if (strcmp("frameskip", buffer) == 0) opt->frameskip = value;
+		}
+		fclose(config);
+	}
+}
+
+void save_cfg(game_entry *e) {
+	char cfg_file[256];
+	size_t zero_spot = strlen(e->name) - 4;
+	e->name[zero_spot] = 0;
+	sprintf(cfg_file, "ux0:data/desmume/%s.cfg", e->name);
+	e->name[zero_spot] = '.';
+	FILE *f = fopen(cfg_file, "w");
+	fprintf(f, "%s=%hhu\n", "threaded_2d_render", (int)e->opt.threaded_2d_render);
+	fprintf(f, "%s=%hhu\n", "depth_resolve_mode", (int)e->opt.depth_resolve_mode);
+	fprintf(f, "%s=%hhu\n", "has_dynarec", (int)e->opt.has_dynarec);
+	fprintf(f, "%s=%hhu\n", "has_sound", (int)e->opt.has_sound);
+	fprintf(f, "%s=%d\n", "frameskip", (int)e->opt.frameskip);
+	fclose(f);
+}
+
+game_entry *launched_rom = NULL;
 char rom_to_launch[256];
 char *menu_FileBrowser() {
 	ImGui::CreateContext();
@@ -38,23 +73,56 @@ char *menu_FileBrowser() {
 			game_entry *entry = (game_entry *)malloc(sizeof(game_entry));
 			strcpy(entry->name, g_dir.d_name);
 			entry->next = list;
+			char cfg_name[256];
+			g_dir.d_name[strlen(g_dir.d_name) - 4] = 0;
+			sprintf(cfg_name, "ux0:data/desmume/%s.cfg", g_dir.d_name);
+			load_cfg(cfg_name, &entry->opt);
 			list = entry;
 		}
 	}
 	sceIoDclose(fd);
 	
 	game_entry *r = NULL;
+	game_entry *focused = NULL;
+	uint32_t oldpad;
+	SceCtrlData pad;
+	int focus = 0;
+	printf("Starting menu loop\n");
 	while (!r) {
+		sceCtrlPeekBufferPositive(0, &pad, 1);
+		if ((pad.buttons & SCE_CTRL_LTRIGGER) && !(oldpad & SCE_CTRL_LTRIGGER)) {
+			focus = 0;
+		} else if ((pad.buttons & SCE_CTRL_RTRIGGER) && !(oldpad & SCE_CTRL_RTRIGGER)) {
+			focus = 1;
+		}
+		oldpad = pad.buttons;
 		ImGui_ImplVitaGL_NewFrame();
 		game_entry *e = list;
 		ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiSetCond_Always);
-		ImGui::SetNextWindowSize(ImVec2(960, 544), ImGuiSetCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(600, 544), ImGuiSetCond_Always);
+		if (focus == 0) ImGui::SetNextWindowFocus();
 		ImGui::Begin("##main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		while (e) {
 			if (ImGui::Button(e->name, ImVec2(-1.0f, 0.0f))) {
 				r = e;
 			}
+			if (ImGui::IsItemFocused()) {
+				focused = e;
+			}
 			e = e->next;
+		}
+		ImGui::End();
+		if (focus == 1) ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowPos(ImVec2(600, 0), ImGuiSetCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(360, 544), ImGuiSetCond_Always);
+		ImGui::Begin("##options", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing);
+		if (focused) {
+			ImGui::Checkbox("Use Dynarec", (bool *)&focused->opt.has_dynarec);
+			ImGui::Checkbox("Emulate Sound", (bool *)&focused->opt.has_sound);
+			ImGui::SliderInt("Frameskip", &focused->opt.frameskip, 0, 9);
+			ImGui::Separator();
+			ImGui::Checkbox("Alternate Depth Resolve Mode", (bool *)&focused->opt.depth_resolve_mode);
+			ImGui::Checkbox("Threaded 2D Rendering", (bool *)&focused->opt.threaded_2d_render);
 		}
 		ImGui::End();
 		glViewport(0, 0, static_cast<int>(ImGui::GetIO().DisplaySize.x), static_cast<int>(ImGui::GetIO().DisplaySize.y));
@@ -64,12 +132,8 @@ char *menu_FileBrowser() {
 	}
 	
 	sprintf(rom_to_launch, "ux0:data/desmume/%s", r->name);
-	while (list) {
-		game_entry *old = list;
-		list = list->next;
-		free(old);
-	}
-	
+	launched_rom = r;
+	save_cfg(r);
 	return rom_to_launch;
 }
 

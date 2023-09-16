@@ -1,14 +1,20 @@
 #ifndef CONFIG_H__
 #define CONFIG_H__
 
-struct TUserConfiguration {
-	TUserConfiguration();
-	bool soundEnabled;
-	bool jitEnabled;
-	bool threadedRendering;
-	unsigned int frameSkip;
-};
+typedef struct game_options {
+	uint8_t threaded_2d_render;
+	uint8_t depth_resolve_mode;
+	uint8_t has_dynarec;
+	uint8_t has_sound;
+	int frameskip;
+} game_options;
 
-extern TUserConfiguration UserConfiguration;
+typedef struct game_entry {
+	char name[256];
+	game_options opt;
+	struct game_entry *next;
+} game_entry;
+
+extern game_entry *launched_rom;
 
 #endif
