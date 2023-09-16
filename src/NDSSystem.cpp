@@ -58,6 +58,7 @@
 #include "slot2.h"
 #include "SPU.h"
 #include "wifi.h"
+#include "vita/config.h"
 
 #include "arm7_hle.h"
 #ifdef GDB_STUB
@@ -107,6 +108,12 @@ TSCalInfo TSCal;
 namespace DLDI
 {
 	bool tryPatch(void* data, size_t size, unsigned int device);
+}
+
+namespace Sound_Nitro{
+    extern void OnIPCRequest(u32 data);
+    extern void Reset();
+    extern void Process(u32 param);
 }
 
 void Desmume_InitOnce()
@@ -179,7 +186,7 @@ int NDS_Init()
 	{
 		GPU->FinalizeAndDeallocate();
 	}
-	
+
 	GPU = GPUSubsystem::Allocate(0);
 	
 	if (SPU_Init(SNDCORE_DUMMY, 740) != 0)
@@ -1190,6 +1197,7 @@ struct Sequencer
 	bool reschedule;
 	TSequenceItem dispcnt;
 	TSequenceItem wifi;
+	TSequenceItem hle_audio;
 	TSequenceItem_divider divider;
 	TSequenceItem_sqrtunit sqrtunit;
 	TSequenceItem_GXFIFO gxfifo;
@@ -1284,13 +1292,15 @@ static void initSchedule()
 	sequencer.nds_vblankEnded = false;
 }
 
-
 // 2196372 ~= (ARM7_CLOCK << 16) / 1000000
 // This value makes more sense to me, because:
 // ARM7_CLOCK   = 33.51 mhz
 //				= 33513982 cycles per second
 // 				= 33.513982 cycles per microsecond
 const u64 kWifiCycles = 67;//34*2;
+
+// 32768  
+const u64 kAudioCycles = (u64)(174592.0f * 2.9f);//34*2;
 //(this isn't very precise. I don't think it needs to be)
 
 void Sequencer::init()
@@ -1318,6 +1328,8 @@ void Sequencer::init()
 	dma_1_2.controller = &MMU_new.dma[1][2];
 	dma_1_3.controller = &MMU_new.dma[1][3];
 
+	hle_audio.enabled = true;
+	hle_audio.timestamp = kAudioCycles;	
 
 	#ifdef EXPERIMENTAL_WIFI_COMM
 	wifi.enabled = true;
@@ -1327,19 +1339,51 @@ void Sequencer::init()
 	#endif
 }
 
+#include <vitasdk.h>
+
+typedef enum {
+	VGL_MEM_VRAM, // CDRAM
+	VGL_MEM_RAM, // USER_RW RAM
+	VGL_MEM_SLOW, // PHYCONT_USER_RW RAM
+	VGL_MEM_BUDGET, // CDLG RAM
+	VGL_MEM_EXTERNAL, // newlib mem
+	VGL_MEM_ALL
+} vglMemType;
+
+extern "C" void *vglAlloc(uint32_t size, vglMemType type);
+
+//CACHE_ALIGN FragmentColor _outFramebuffer[GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2];
+FragmentColor *_outFramebuffer = NULL;
+
+/*GPUSubsystem * GPU2 = (GPUSubsystem *)malloc_aligned32(sizeof(GPUSubsystem));
+
+extern u8 vram_arm9_map_cached[VRAM_ARM9_PAGES];
+extern CACHE_ALIGN u8 ARM9_LCD_cached[0xA4000 + 0x20000];*/
+
 static void * render2D(void *arg) {
-
-	extern void video_DrawFrame();
-
+	if (!_outFramebuffer) {
+		_outFramebuffer = (FragmentColor *)vglAlloc(GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2, VGL_MEM_RAM);
+	}
     // Perform rendering operations here
 	const bool skip = frameSkipper.ShouldSkip2D();
 
+	/*memcpy((void*)GPU2, (void*)GPU, sizeof(GPUSubsystem));
+	memcpy(&GPU2->GetEngineMain()->_IORegisterMap_cached, GPU2->GetEngineMain()->_IORegisterMap, sizeof(GPU2->GetEngineMain()->_IORegisterMap_cached));
+	memcpy(&GPU2->GetEngineSub()->_IORegisterMap_cached, GPU2->GetEngineSub()->_IORegisterMap, sizeof(GPU2->GetEngineSub()->_IORegisterMap_cached));*/
+	
+
 	for (int i = 0; i < 192; ++i) {
-		StartScanline(i);
+
+		/*if (i % 10 == 0){
+			memcpy((void*)ARM9_LCD_cached, (void*)MMU.ARM9_LCD, sizeof(MMU.ARM9_LCD));
+			memcpy((void*)vram_arm9_map_cached, (void*)vram_arm9_map, sizeof(vram_arm9_map));
+		}*/
+		
 		GPU->RenderLine<NDSColorFormat_BGR555_Rev>(i, skip);
 	}
 
-	video_DrawFrame();
+	sceClibMemcpy(_outFramebuffer, GPU->GetDisplayInfo().masterNativeBuffer, GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2);
+
 	return 0;
 }
 
@@ -1385,6 +1429,7 @@ static void execHardware_hblank()
 
 	//emulation housekeeping. for some reason we always do this at hblank,
 	//even though it sounds more reasonable to do it at hstart
+
 	SPU_Emulate_core();
 	//driver->AVI_SoundUpdate(SPU_core->outbuf,spu_core_samples);
 	//WAV_WavSoundUpdate(SPU_core->outbuf,spu_core_samples);
@@ -1631,6 +1676,8 @@ u64 Sequencer::findNext()
 	next = _fast_min(next,wifi.next());
 #endif
 
+	next = _fast_min(next,hle_audio.next());
+
 #define test(X,Y) if(dma_##X##_##Y .isEnabled()) next = _fast_min(next,dma_##X##_##Y .next());
 	test(0,0); test(0,1); test(0,2); test(0,3);
 	//test(1,0); test(1,1); test(1,2); test(1,3);
@@ -1692,10 +1739,16 @@ void Sequencer::execHardware()
 		wifi.timestamp += kWifiCycles;
 	}
 #endif
+
+	if (hle_audio.isTriggered())
+	{
+		Sound_Nitro::Process(1);
+		hle_audio.timestamp += kAudioCycles;
+	}
 	
 	if(divider.isTriggered()) divider.exec();
 	if(sqrtunit.isTriggered()) sqrtunit.exec();
-	if(gxfifo.isTriggered()) gxfifo.exec();
+	if(gxfifo.isTriggered()) gxfifo.exec(); 
 
 
 #define test(X,Y) if(dma_##X##_##Y .isTriggered()) dma_##X##_##Y .exec();
@@ -1863,7 +1916,7 @@ static FORCEINLINE s32 minarmtime(s32 arm9, s32 arm7)
 }
 
 #ifdef HAVE_JIT
-template<bool doarm9, bool doarm7, bool jit>
+template<bool jit>
 #else
 template<bool doarm9, bool doarm7>
 #endif
@@ -1935,7 +1988,10 @@ void NDS_exec(s32 nb)
 	}
 	else
 	{
-		task2DGPU.execute(&render2D, 0);
+		if (launched_rom->opt.threaded_2d_render)
+			task2DGPU.execute(&render2D, 0);
+		else
+			render2D(NULL);
 
 		for(;;)
 		{
@@ -1983,8 +2039,6 @@ void NDS_exec(s32 nb)
 
 			sequencer.reschedule = false;
 
-			//cast these down to 32bits so that things run faster on 32bit procs
-			u64 nds_timer_base = nds_timer;
 			s32 s32next = (s32)(next-nds_timer);
 
 			#ifdef DEVELOPER
@@ -1996,9 +2050,9 @@ void NDS_exec(s32 nb)
 
 #ifdef HAVE_JIT
 			if (CommonSettings.use_jit)
-				armInnerLoop<true,true,true>(s32next);
+				armInnerLoop<true>(s32next);
 			else 
-				armInnerLoop<true,true,false>(s32next);
+				armInnerLoop<false>(s32next);
 #else
 				std::pair<s32,s32> arm9arm7 = armInnerLoop<true,true>(nds_timer_base,s32next,arm9,arm7);
 #endif
@@ -2022,11 +2076,6 @@ void NDS_exec(s32 nb)
 			{
 				nds.idleCycles[0] -= (s32)(nds_arm9_timer-nds_timer);
 				nds_arm9_timer = nds_timer;
-			}
-			if(NDS_ARM7.waitIRQ)
-			{
-				nds.idleCycles[1] -= (s32)(nds_arm7_timer-nds_timer);
-				nds_arm7_timer = nds_timer;
 			}
 		}
 	}
@@ -2512,6 +2561,8 @@ void NDS_Reset()
 	}
 
 	resetUserInput();
+
+	HLE_Reset();
 
 	
 	singleStep = false;

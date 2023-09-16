@@ -74,7 +74,7 @@ enum OGLTextureUnitID
 	OGLTextureUnitID_ClearImage
 };
 
-class OpenGLESRenderer : public Render3D
+class OpenGLES2Renderer : public Render3D
 {
 private:
 	// Driver's OpenGL Version
@@ -100,74 +100,6 @@ protected:
 	unsigned int doubleBufferIndex;
 	u8 clearImageStencilValue;
 	
-	// OpenGL-specific methods
-	virtual Render3DError CreateVBOs() = 0;
-	virtual void DestroyVBOs() = 0;
-	virtual Render3DError CreateFBOs() = 0;
-	virtual void DestroyFBOs() = 0;
-	virtual Render3DError CreateShaders(const std::string *vertexShaderProgram, const std::string *fragmentShaderProgram) = 0;
-	virtual void DestroyShaders() = 0;
-	virtual Render3DError CreateVAOs() = 0;
-	virtual void DestroyVAOs() = 0;
-	virtual Render3DError InitTextures() = 0;
-	virtual Render3DError InitFinalRenderStates(const std::set<std::string> *oglExtensionSet) = 0;
-	virtual Render3DError InitTables() = 0;
-	
-	virtual Render3DError LoadShaderPrograms(std::string *outVertexShaderProgram, std::string *outFragmentShaderProgram) = 0;
-	virtual Render3DError SetupShaderIO() = 0;
-	virtual Render3DError CreateToonTable() = 0;
-	virtual Render3DError DestroyToonTable() = 0;
-	virtual Render3DError UploadToonTable(const GLuint *toonTableBuffer) = 0;
-	virtual Render3DError CreateClearImage() = 0;
-	virtual Render3DError DestroyClearImage() = 0;
-	virtual Render3DError UploadClearImage(const GLushort *clearImageColorBuffer, const GLint *clearImageDepthBuffer) = 0;
-	
-	virtual void GetExtensionSet(std::set<std::string> *oglExtensionSet) = 0;
-	virtual Render3DError ExpandFreeTextures() = 0;
-	virtual Render3DError SetupVertices(const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList, GLushort *outIndexBuffer, unsigned int *outIndexCount) = 0;
-	virtual Render3DError EnableVertexAttributes(const VERTLIST *vertList, const GLushort *indexBuffer, const unsigned int vertIndexCount) = 0;
-	virtual Render3DError DisableVertexAttributes() = 0;
-	virtual Render3DError SelectRenderingFramebuffer() = 0;
-	virtual Render3DError ReadBackPixels() = 0;
-	
-	// Base rendering methods
-	virtual Render3DError BeginRender(const GFX3D_State *renderState) = 0;
-	virtual Render3DError PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList) = 0;
-	virtual Render3DError DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList) = 0;
-	virtual Render3DError PostRender() = 0;
-	virtual Render3DError EndRender(const u64 frameCount) = 0;
-	
-	virtual Render3DError UpdateClearImage(const u16 *__restrict colorBuffer, const u16 *__restrict depthBuffer, const u8 clearStencil, const u8 xScroll, const u8 yScroll) = 0;
-	virtual Render3DError UpdateToonTable(const u16 *toonTableBuffer) = 0;
-	
-	virtual Render3DError ClearUsingImage() const = 0;
-	virtual Render3DError ClearUsingValues(const u8 r, const u8 g, const u8 b, const u8 a, const u32 clearDepth, const u8 clearStencil) const = 0;
-	
-	virtual Render3DError SetupPolygon(const POLY *thePoly) = 0;
-	virtual Render3DError SetupTexture(const POLY *thePoly, bool enableTexturing) = 0;
-	virtual Render3DError SetupViewport(const POLY *thePoly) = 0;
-	
-public:
-	OpenGLESRenderer();
-	virtual ~OpenGLESRenderer() {};
-	
-	virtual Render3DError InitExtensions() = 0;
-	virtual Render3DError Reset() = 0;
-	virtual Render3DError RenderFinish() = 0;
-	
-	virtual Render3DError DeleteTexture(const TexCacheItem *item) = 0;
-	
-	bool IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const;
-	bool ValidateShaderCompile(GLuint theShader) const;
-	bool ValidateShaderProgramLink(GLuint theProgram) const;
-	void GetVersion(unsigned int *major, unsigned int *minor) const;
-	void SetVersion(unsigned int major, unsigned int minor);
-	void ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer);
-};
-
-class OpenGLES2Renderer : public OpenGLESRenderer
-{
-protected:
 	// OpenGL-specific methods
 	virtual Render3DError CreateVBOs();
 	virtual void DestroyVBOs();
@@ -197,11 +129,12 @@ protected:
 	virtual Render3DError DisableVertexAttributes();
 	virtual Render3DError SelectRenderingFramebuffer();
 	virtual Render3DError ReadBackPixels();
+	virtual Render3DError Render(const GFX3D &engine);
 	
 	// Base rendering methods
-	virtual Render3DError BeginRender(const GFX3D_State *renderState);
+	virtual Render3DError BeginRender(const GFX3D_State &renderState);
 	virtual Render3DError PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList);
-	virtual Render3DError DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList);
+	virtual Render3DError RenderGeometry(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList);
 	virtual Render3DError PostRender();
 	virtual Render3DError EndRender(const u64 frameCount);
 	
@@ -217,13 +150,20 @@ protected:
 	
 public:
 	OpenGLES2Renderer();
-	~OpenGLES2Renderer();
+	virtual ~OpenGLES2Renderer() {};
 	
 	virtual Render3DError InitExtensions();
 	virtual Render3DError Reset();
 	virtual Render3DError RenderFinish();
 	
 	virtual Render3DError DeleteTexture(const TexCacheItem *item);
+	
+	bool IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const;
+	bool ValidateShaderCompile(GLuint theShader) const;
+	bool ValidateShaderProgramLink(GLuint theProgram) const;
+	void GetVersion(unsigned int *major, unsigned int *minor) const;
+	void SetVersion(unsigned int major, unsigned int minor);
+	void ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer);
 };
 
 #endif

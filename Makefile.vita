@@ -81,8 +81,7 @@ FRONTEND_SOURCES += \
 	vita/video.cpp \
 	vita/input.cpp \
 	vita/menu.cpp \
-	vita/sound.cpp \
-	vita/config.cpp
+	vita/sound.cpp
 
 LIBRETRO_SOURCES += \
 	libretro-common/compat/compat_strl.c \
@@ -93,9 +92,7 @@ LIBRETRO_SOURCES += \
 
 OBJS = $(DESMUME_SOURCES:%.cpp=$(SOURCE_DIR)/%.o) $(FRONTEND_SOURCES:%.cpp=$(SOURCE_DIR)/%.o) $(LIBRETRO_SOURCES:%.c=$(SOURCE_DIR)/%.o)
 
-# -llibIMGEGL_stub_weak -llibgpu_es4_ext_stub_weak -llibGLESv2_stub_weak
-
-LIBS = -lvita2D -llibIMGEGL_stub_weak -llibgpu_es4_ext_stub_weak -llibGLESv2_stub_weak -lSceShaccCgExt -lSceShaccCg_stub -lmathneon -ltaihen_stub \
+LIBS = -limgui -lvitaGL -lvitashark -lSceShaccCgExt -lSceShaccCg_stub -lmathneon -ltaihen_stub \
 	-lSceLibKernel_stub -lSceKernelDmacMgr_stub -lSceDisplay_stub -lSceGxm_stub -lSceNet_stub \
 	-lSceSysmodule_stub -lSceCtrl_stub -lSceTouch_stub -lScePgf_stub -lSceAudio_stub \
 	-lSceCommonDialog_stub -lScePower_stub -lfreetype -lpng -ljpeg -lz -lm -lc -lstdc++ \
@@ -103,7 +100,7 @@ LIBS = -lvita2D -llibIMGEGL_stub_weak -llibgpu_es4_ext_stub_weak -llibGLESv2_stu
 
 PREFIX  = arm-vita-eabi
 CC      = $(PREFIX)-gcc
-CFLAGS  += -O3 -g -march=armv7-a -mfloat-abi=hard -ffast-math -fsingle-precision-constant
+CFLAGS  += -Ofast -g -march=armv7-a -mfloat-abi=hard -ffast-math -fsingle-precision-constant -fno-optimize-sibling-calls
 CFLAGS  += -Wl,-q -Wall -D__psp2__ -DVITA $(foreach dir,$(INCLUDES),-I$(CURDIR)/$(dir)) -Wfatal-errors -DHAVE_LIBZ -DHAVE_JIT
 ASFLAGS = $(CFLAGS)
 

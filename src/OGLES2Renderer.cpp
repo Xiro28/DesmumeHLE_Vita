@@ -23,12 +23,17 @@
 #include <string.h>
 #include <algorithm>
 
+#include "vita/config.h"
 #include "common.h"
 #include "debug.h"
 #include "gfx3d.h"
 #include "NDSSystem.h"
 #include "texcache.h"
 
+
+uint32_t top_screen_fbo, bottom_screen_fbo;
+uint32_t top_screen_tex, bottom_screen_tex;
+uint32_t top_changed = 0, bottom_changed = 0;
 
 // Lookup Tables
 CACHE_ALIGN GLuint dsDepthToD24S8_LUT[32768] = {0};
@@ -45,19 +50,16 @@ const GLfloat divide5bitBy31_LUT[32]	= {0.0, 0.03225806451613, 0.06451612903226,
 #define RGB15TO32_NOALPHA(col) 
 
 //static OGLVersion _OGLDriverVersion = {0, 0};
-static OpenGLESRenderer *_OGLRenderer = NULL;
+static OpenGLES2Renderer *_OGLRenderer = NULL;
 
 bool BEGINGL()
 {
-	/*if(oglrender_beginOpenGL) 
-		return oglrender_beginOpenGL();
-	else return true;*/
+	return true;
 }
 
 void ENDGL()
 {
-	/*if(oglrender_endOpenGL) 
-		oglrender_endOpenGL();*/
+
 }
 
 //------------------------------------------------------------
@@ -82,397 +84,6 @@ void OGLESLoadEntryPoints()
 	INITOGLEXT(PFNGLMAPBUFFEROESPROC, glMapBufferOES)
 	INITOGLEXT(PFNGLUNMAPBUFFEROESPROC, glUnmapBufferOES)
 }
-
-// Vertex shader for geometry, GLSL 1.50
-static const char *GeometryVtxShader_150 = {"\
-	#version 150 \n\
-	\n\
-	in vec4 inPosition; \n\
-	in vec2 inTexCoord0; \n\
-	in vec3 inColor; \n\
-	\n\
-	uniform usamplerBuffer PolyStates;\n\
-	uniform int polyIndex;\n\
-	\n\
-	out vec4 vtxPosition; \n\
-	out vec2 vtxTexCoord; \n\
-	out vec4 vtxColor; \n\
-	flat out uint polyEnableTexture;\n\
-	flat out uint polyEnableFog;\n\
-	flat out uint polyEnableDepthWrite;\n\
-	flat out uint polySetNewDepthForTranslucent;\n\
-	flat out uint polyMode;\n\
-	flat out uint polyID;\n\
-	flat out uint texSingleBitAlpha;\n\
-	\n\
-	void main() \n\
-	{ \n\
-		uvec4 polyStateFlags = texelFetch(PolyStates, (polyIndex*3)+0);\n\
-		uvec4 polyStateValues = texelFetch(PolyStates, (polyIndex*3)+1);\n\
-		uvec4 polyStateTexParams = texelFetch(PolyStates, (polyIndex*3)+2);\n\
-		\n\
-		float polyAlpha = float(polyStateValues[0]) / 31.0;\n\
-		vec2 polyTexScale = vec2(1.0 / float(8 << polyStateTexParams[0]), 1.0 / float(8 << polyStateTexParams[1]));\n\
-		\n\
-		polyEnableTexture = polyStateFlags[0];\n\
-		polyEnableFog = polyStateFlags[1];\n\
-		polyEnableDepthWrite = polyStateFlags[2];\n\
-		polySetNewDepthForTranslucent = polyStateFlags[3];\n\
-		polyMode = polyStateValues[1];\n\
-		polyID = polyStateValues[2];\n\
-		texSingleBitAlpha = polyStateTexParams[2];\n\
-		\n\
-		mat2 texScaleMtx	= mat2(	vec2(polyTexScale.x,            0.0), \n\
-									vec2(           0.0, polyTexScale.y)); \n\
-		\n\
-		vtxPosition = inPosition; \n\
-		vtxTexCoord = texScaleMtx * inTexCoord0; \n\
-		vtxColor = vec4(inColor * 4.0, polyAlpha); \n\
-		\n\
-		gl_Position = vtxPosition; \n\
-	} \n\
-"};
-
-// Fragment shader for geometry, GLSL 1.50
-static const char *GeometryFragShader_150 = {"\
-	#version 150 \n\
-	\n\
-	in vec4 vtxPosition; \n\
-	in vec2 vtxTexCoord; \n\
-	in vec4 vtxColor; \n\
-	flat in uint polyEnableTexture;\n\
-	flat in uint polyEnableFog;\n\
-	flat in uint polyEnableDepthWrite;\n\
-	flat in uint polySetNewDepthForTranslucent;\n\
-	flat in uint polyMode;\n\
-	flat in uint polyID;\n\
-	flat in uint texSingleBitAlpha;\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texRenderObject; \n\
-	uniform usamplerBuffer PolyStates;\n\
-	uniform int polyIndex;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	out vec4 outFragDepth;\n\
-	out vec4 outPolyID;\n\
-	out vec4 outFogAttributes;\n\
-	\n\
-	vec3 packVec3FromFloat(const float value)\n\
-	{\n\
-		float expandedValue = value * 16777215.0;\n\
-		vec3 packedValue = vec3( fract(expandedValue/256.0), fract(((expandedValue/256.0) - fract(expandedValue/256.0)) / 256.0), fract(((expandedValue/65536.0) - fract(expandedValue/65536.0)) / 256.0) );\n\
-		return packedValue;\n\
-	}\n\
-	\n\
-	void main() \n\
-	{ \n\
-		vec4 mainTexColor = bool(polyEnableTexture) ? texture(texRenderObject, vtxTexCoord) : vec4(1.0, 1.0, 1.0, 1.0);\n\
-		\n\
-		if (bool(texSingleBitAlpha))\n\
-		{\n\
-			if (mainTexColor.a < 0.500)\n\
-			{\n\
-				mainTexColor.a = 0.0;\n\
-			}\n\
-			else\n\
-			{\n\
-				mainTexColor.rgb = mainTexColor.rgb / mainTexColor.a;\n\
-				mainTexColor.a = 1.0;\n\
-			}\n\
-		}\n\
-		\n\
-		vec4 newFragColor = mainTexColor * vtxColor; \n\
-		\n\
-		if (polyMode == 1u) \n\
-		{ \n\
-			newFragColor.rgb = bool(polyEnableTexture) ? mix(vtxColor.rgb, mainTexColor.rgb, mainTexColor.a) : vtxColor.rgb;\n\
-			newFragColor.a = vtxColor.a; \n\
-		} \n\
-		else if (polyMode == 2u) \n\
-		{ \n\
-			vec3 newToonColor = state.toonColor[int((vtxColor.r * 31.0) + 0.5)].rgb;\n\
-			newFragColor.rgb = (state.toonShadingMode == 0) ? mainTexColor.rgb * newToonColor.rgb : min((mainTexColor.rgb * vtxColor.r) + newToonColor.rgb, 1.0); \n\
-		} \n\
-		else if (polyMode == 3u) \n\
-		{ \n\
-			if (polyID != 0u) \n\
-			{ \n\
-				newFragColor = vtxColor; \n\
-			} \n\
-		} \n\
-		\n\
-		if (newFragColor.a < 0.001 || (state.enableAlphaTest && newFragColor.a < state.alphaTestRef))\n\
-		{\n\
-			discard;\n\
-		}\n\
-		\n\
-		float vertW = (vtxPosition.w == 0.0) ? 0.00000001 : vtxPosition.w; \n\
-		// hack: when using z-depth, drop some LSBs so that the overworld map in Dragon Quest IV shows up correctly\n\
-		float newFragDepth = (state.useWDepth) ? vtxPosition.w/4096.0 : clamp( (floor((((vtxPosition.z/vertW) * 0.5 + 0.5) * 16777215.0) / 4.0) * 4.0) / 16777215.0, 0.0, 1.0); \n\
-		\n\
-		outFragColor = newFragColor;\n\
-		outFragDepth = vec4( packVec3FromFloat(newFragDepth), float(bool(polyEnableDepthWrite) && (newFragColor.a > 0.999 || bool(polySetNewDepthForTranslucent))));\n\
-		outPolyID = vec4(float(polyID)/63.0, 0.0, 0.0, float(newFragColor.a > 0.999));\n\
-		outFogAttributes = vec4(float(polyEnableFog), 0.0, 0.0, float((newFragColor.a > 0.999) ? 1.0 : 0.5));\n\
-		gl_FragDepth = newFragDepth;\n\
-	} \n\
-"};
-
-// Vertex shader for applying edge marking, GLSL 1.50
-static const char *EdgeMarkVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	out vec2 texCoord[5];\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec2 texInvScale = vec2(1.0/state.framebufferSize.x, 1.0/state.framebufferSize.y);\n\
-		\n\
-		texCoord[0] = inTexCoord0; // Center\n\
-		texCoord[1] = inTexCoord0 + (vec2( 1.0, 0.0) * texInvScale); // Right\n\
-		texCoord[2] = inTexCoord0 + (vec2( 0.0, 1.0) * texInvScale); // Down\n\
-		texCoord[3] = inTexCoord0 + (vec2(-1.0, 0.0) * texInvScale); // Left\n\
-		texCoord[4] = inTexCoord0 + (vec2( 0.0,-1.0) * texInvScale); // Up\n\
-		\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for applying edge marking, GLSL 1.50
-static const char *EdgeMarkFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord[5];\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texInFragDepth;\n\
-	uniform sampler2D texInPolyID;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	float unpackFloatFromVec3(const vec3 value)\n\
-	{\n\
-		const vec3 unpackRatio = vec3(256.0, 65536.0, 16777216.0);\n\
-		return (dot(value, unpackRatio) / 16777215.0);\n\
-	}\n\
-	\n\
-	void main()\n\
-	{\n\
-		int polyID[5];\n\
-		polyID[0] = int((texture(texInPolyID, texCoord[0]).r * 63.0) + 0.5);\n\
-		polyID[1] = int((texture(texInPolyID, texCoord[1]).r * 63.0) + 0.5);\n\
-		polyID[2] = int((texture(texInPolyID, texCoord[2]).r * 63.0) + 0.5);\n\
-		polyID[3] = int((texture(texInPolyID, texCoord[3]).r * 63.0) + 0.5);\n\
-		polyID[4] = int((texture(texInPolyID, texCoord[4]).r * 63.0) + 0.5);\n\
-		\n\
-		float depth[5];\n\
-		depth[0] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[0]).rgb);\n\
-		depth[1] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[1]).rgb);\n\
-		depth[2] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[2]).rgb);\n\
-		depth[3] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[3]).rgb);\n\
-		depth[4] = unpackFloatFromVec3(texture(texInFragDepth, texCoord[4]).rgb);\n\
-		\n\
-		vec4 newEdgeColor = vec4(0.0, 0.0, 0.0, 0.0);\n\
-		\n\
-		for (int i = 1; i < 5; i++)\n\
-		{\n\
-			if (polyID[0] != polyID[i] && depth[0] >= depth[i])\n\
-			{\n\
-				newEdgeColor = state.edgeColor[polyID[i]/8];\n\
-				break;\n\
-			}\n\
-		}\n\
-		\n\
-		outFragColor = newEdgeColor;\n\
-	}\n\
-"};
-
-// Vertex shader for applying fog, GLSL 1.50
-static const char *FogVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	out vec2 texCoord;\n\
-	\n\
-	void main()\n\
-	{\n\
-		texCoord = inTexCoord0;\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for applying fog, GLSL 1.50
-static const char *FogFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord;\n\
-	\n\
-	layout (std140) uniform RenderStates\n\
-	{\n\
-		vec2 framebufferSize;\n\
-		int toonShadingMode;\n\
-		bool enableAlphaTest;\n\
-		bool enableAntialiasing;\n\
-		bool enableEdgeMarking;\n\
-		bool enableFogAlphaOnly;\n\
-		bool useWDepth;\n\
-		float alphaTestRef;\n\
-		float fogOffset;\n\
-		float fogStep;\n\
-		float pad_0;\n\
-		vec4 fogColor;\n\
-		float fogDensity[32];\n\
-		vec4 edgeColor[8];\n\
-		vec4 toonColor[32];\n\
-	} state;\n\
-	\n\
-	uniform sampler2D texInFragColor;\n\
-	uniform sampler2D texInFragDepth;\n\
-	uniform sampler2D texInFogAttributes;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	float unpackFloatFromVec3(const vec3 value)\n\
-	{\n\
-		const vec3 unpackRatio = vec3(256.0, 65536.0, 16777216.0);\n\
-		return (dot(value, unpackRatio) / 16777215.0);\n\
-	}\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec4 inFragColor = texture(texInFragColor, texCoord);\n\
-		vec4 inFogAttributes = texture(texInFogAttributes, texCoord);\n\
-		bool polyEnableFog = (inFogAttributes.r > 0.999);\n\
-		vec4 newFoggedColor = inFragColor;\n\
-		\n\
-		if (polyEnableFog)\n\
-		{\n\
-			float inFragDepth = unpackFloatFromVec3(texture(texInFragDepth, texCoord).rgb);\n\
-			float fogMixWeight = 0.0;\n\
-			\n\
-			if (inFragDepth <= min(state.fogOffset + state.fogStep, 1.0))\n\
-			{\n\
-				fogMixWeight = state.fogDensity[0];\n\
-			}\n\
-			else if (inFragDepth >= min(state.fogOffset + (state.fogStep*32.0), 1.0))\n\
-			{\n\
-				fogMixWeight = state.fogDensity[31];\n\
-			}\n\
-			else\n\
-			{\n\
-				for (int i = 1; i < 32; i++)\n\
-				{\n\
-					float currentFogStep = min(state.fogOffset + (state.fogStep * float(i+1)), 1.0);\n\
-					if (inFragDepth <= currentFogStep)\n\
-					{\n\
-						float previousFogStep = min(state.fogOffset + (state.fogStep * float(i)), 1.0);\n\
-						fogMixWeight = mix(state.fogDensity[i-1], state.fogDensity[i], (inFragDepth - previousFogStep) / (currentFogStep - previousFogStep));\n\
-						break;\n\
-					}\n\
-				}\n\
-			}\n\
-			\n\
-			newFoggedColor = mix(inFragColor, (state.enableFogAlphaOnly) ? vec4(inFragColor.rgb, state.fogColor.a) : state.fogColor, fogMixWeight);\n\
-		}\n\
-		\n\
-		outFragColor = newFoggedColor;\n\
-	}\n\
-"};
-
-// Vertex shader for the final framebuffer, GLSL 1.50
-static const char *FramebufferOutputVtxShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 inPosition;\n\
-	in vec2 inTexCoord0;\n\
-	out vec2 texCoord;\n\
-	\n\
-	void main()\n\
-	{\n\
-		texCoord = inTexCoord0;\n\
-		gl_Position = vec4(inPosition, 0.0, 1.0);\n\
-	}\n\
-"};
-
-// Fragment shader for the final framebuffer, GLSL 1.50
-static const char *FramebufferOutputFragShader_150 = {"\
-	#version 150\n\
-	\n\
-	in vec2 texCoord;\n\
-	\n\
-	uniform sampler2D texInFragColor;\n\
-	\n\
-	out vec4 outFragColor;\n\
-	\n\
-	void main()\n\
-	{\n\
-		vec4 colorRGBA6665 = texture(texInFragColor, texCoord);\n\
-		colorRGBA6665     = floor((colorRGBA6665 * 255.0) + 0.5);\n\
-		colorRGBA6665.rgb = floor(colorRGBA6665.rgb / 4.0);\n\
-		colorRGBA6665.a   = floor(colorRGBA6665.a   / 8.0);\n\
-		\n\
-		outFragColor = (colorRGBA6665 / 255.0);\n\
-	}\n\
-"};
 
 // Vertex Shader GLSL 1.00
 static const char *vertexShader_100 = {"\
@@ -582,6 +193,11 @@ static const char *fragmentShader_100 = {"\
 	} \n\
 "};
 
+static void texDeleteCallback(TexCacheItem *item, void *arg0, void *arg1)
+{
+	_OGLRenderer->DeleteTexture(item);
+}
+
 FORCEINLINE u32 RGBA8888_32_To_RGBA6665_32Rev(const u32 srcPix)
 {
 	const u32 dstPix = (srcPix >> 2) & 0x3F3F3F3F;
@@ -603,12 +219,12 @@ FORCEINLINE u32 RGBA8888_32Rev_To_RGBA6665_32Rev(const u32 srcPix)
 	return ((dstPix >> 1) & 0xFF000000) | (dstPix & 0x00FFFFFF);
 }
 
-void OGLCreateRendererES(OpenGLESRenderer **rendererPtr)
+void OGLCreateRendererES(OpenGLES2Renderer **rendererPtr)
 {
 
 }
 
-bool OpenGLESRenderer::IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const
+bool OpenGLES2Renderer::IsExtensionPresent(const std::set<std::string> *oglExtensionSet, const std::string extensionName) const
 {
 	if (oglExtensionSet == NULL || oglExtensionSet->size() == 0)
 	{
@@ -618,7 +234,7 @@ bool OpenGLESRenderer::IsExtensionPresent(const std::set<std::string> *oglExtens
 	return (oglExtensionSet->find(extensionName) != oglExtensionSet->end());
 }
 
-bool OpenGLESRenderer::ValidateShaderCompile(GLuint theShader) const
+bool OpenGLES2Renderer::ValidateShaderCompile(GLuint theShader) const
 {
 	bool isCompileValid = false;
 	GLint status = GL_FALSE;
@@ -644,7 +260,7 @@ bool OpenGLESRenderer::ValidateShaderCompile(GLuint theShader) const
 	return isCompileValid;
 }
 
-bool OpenGLESRenderer::ValidateShaderProgramLink(GLuint theProgram) const
+bool OpenGLES2Renderer::ValidateShaderProgramLink(GLuint theProgram) const
 {
 	bool isLinkValid = false;
 	GLint status = GL_FALSE;
@@ -670,16 +286,16 @@ bool OpenGLESRenderer::ValidateShaderProgramLink(GLuint theProgram) const
 	return isLinkValid;
 }
 
-void OpenGLESRenderer::GetVersion(unsigned int *major, unsigned int *minor) const
+void OpenGLES2Renderer::GetVersion(unsigned int *major, unsigned int *minor) const
 {
 }
 
-void OpenGLESRenderer::SetVersion(unsigned int major, unsigned int minor)
+void OpenGLES2Renderer::SetVersion(unsigned int major, unsigned int minor)
 {
 	
 }
 
-void OpenGLESRenderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer)
+void OpenGLES2Renderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *dstBuffer)
 {
 	if (srcBuffer == NULL || dstBuffer == NULL)
 	{
@@ -708,7 +324,7 @@ void OpenGLESRenderer::ConvertFramebuffer(const u32 *__restrict srcBuffer, u32 *
 	}
 }
 
-OpenGLESRenderer::OpenGLESRenderer()
+OpenGLES2Renderer::OpenGLES2Renderer()
 {
 	isFBOSupported = false;
 	isVAOSupported = false;
@@ -718,8 +334,9 @@ OpenGLESRenderer::OpenGLESRenderer()
 }
 
 
-Render3DError OpenGLESRenderer::InitExtensions()
+Render3DError OpenGLES2Renderer::InitExtensions()
 {
+	printf("InitExntesions\n");
 	Render3DError error = OGLERROR_NOERR;
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -747,8 +364,11 @@ Render3DError OpenGLESRenderer::InitExtensions()
 	this->CreateToonTable();
 	
 	this->CreateVBOs();
-	
+#ifdef __vita__
+	this->isVAOSupported = false;
+#else
 	this->isVAOSupported = this->IsExtensionPresent(&oglExtensionSet, "GL_OES_vertex_array_object");
+#endif
 	if (this->isVAOSupported)
 	{
 		this->CreateVAOs();
@@ -756,6 +376,30 @@ Render3DError OpenGLESRenderer::InitExtensions()
 	
 	//this->isFBOSupported	= this->IsExtensionPresent(&oglExtensionSet, "GL_OES_depth_texture") &&
 	//						  this->IsExtensionPresent(&oglExtensionSet, "GL_OES_packed_depth_stencil");
+	
+#ifdef __vita__
+	uint32_t renderbuffers[2];
+	glGenRenderbuffers(2, renderbuffers);
+	glGenTextures(1, &top_screen_tex);
+	glGenTextures(1, &bottom_screen_tex);
+	glBindTexture(GL_TEXTURE_2D, top_screen_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
+	glGenFramebuffers(1, &top_screen_fbo);
+	glGenFramebuffers(1, &bottom_screen_fbo);
+	glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, top_screen_tex, 0);
+	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffers[0]);
+	glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0, 256, 192);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffers[0]);
+	glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
+	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, bottom_screen_tex, 0);
+	glBindRenderbuffer(GL_RENDERBUFFER, renderbuffers[1]);
+	glRenderbufferStorage(GL_RENDERBUFFER, 0x88F0, 256, 192);
+	glFramebufferRenderbuffer(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_RENDERBUFFER, renderbuffers[1]);
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#endif
 	this->isFBOSupported = false;
 	if (this->isFBOSupported)
 	{
@@ -778,7 +422,7 @@ Render3DError OpenGLESRenderer::InitExtensions()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateVBOs()
+Render3DError OpenGLES2Renderer::CreateVBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -795,7 +439,7 @@ Render3DError OpenGLESRenderer::CreateVBOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyVBOs()
+void OpenGLES2Renderer::DestroyVBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -806,7 +450,7 @@ void OpenGLESRenderer::DestroyVBOs()
 	glDeleteBuffers(1, &OGLRef.iboIndexID);
 }
 
-Render3DError OpenGLESRenderer::LoadShaderPrograms(std::string *outVertexShaderProgram, std::string *outFragmentShaderProgram)
+Render3DError OpenGLES2Renderer::LoadShaderPrograms(std::string *outVertexShaderProgram, std::string *outFragmentShaderProgram)
 {
 	outVertexShaderProgram->clear();
 	outFragmentShaderProgram->clear();
@@ -817,7 +461,7 @@ Render3DError OpenGLESRenderer::LoadShaderPrograms(std::string *outVertexShaderP
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupShaderIO()
+Render3DError OpenGLES2Renderer::SetupShaderIO()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -828,7 +472,7 @@ Render3DError OpenGLESRenderer::SetupShaderIO()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderProgram, const std::string *fragmentShaderProgram)
+Render3DError OpenGLES2Renderer::CreateShaders(const std::string *vertexShaderProgram, const std::string *fragmentShaderProgram)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -885,16 +529,19 @@ Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderPro
 	glLinkProgram(OGLRef.shaderProgram);
 	if (!this->ValidateShaderProgramLink(OGLRef.shaderProgram))
 	{
+#ifndef __vita__
 		glDetachShader(OGLRef.shaderProgram, OGLRef.vertexShaderID);
 		glDetachShader(OGLRef.shaderProgram, OGLRef.fragmentShaderID);
+#endif
 		glDeleteProgram(OGLRef.shaderProgram);
 		glDeleteShader(OGLRef.vertexShaderID);
 		glDeleteShader(OGLRef.fragmentShaderID);
 		INFO("OpenGLES2: Failed to link the shader program.\n");
 		return OGLERROR_SHADER_CREATE_ERROR;
 	}
-	
+#ifndef __vita__
 	glValidateProgram(OGLRef.shaderProgram);
+#endif
 	glUseProgram(OGLRef.shaderProgram);
 	
 	// Set up shader uniforms
@@ -919,15 +566,15 @@ Render3DError OpenGLESRenderer::CreateShaders(const std::string *vertexShaderPro
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyShaders()
+void OpenGLES2Renderer::DestroyShaders()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
 	glUseProgram(0);
-	
+#ifndef __vita__
 	glDetachShader(OGLRef.shaderProgram, OGLRef.vertexShaderID);
 	glDetachShader(OGLRef.shaderProgram, OGLRef.fragmentShaderID);
-	
+#endif
 	glDeleteProgram(OGLRef.shaderProgram);
 	glDeleteShader(OGLRef.vertexShaderID);
 	glDeleteShader(OGLRef.fragmentShaderID);
@@ -935,7 +582,7 @@ void OpenGLESRenderer::DestroyShaders()
 	this->DestroyToonTable();
 }
 
-Render3DError OpenGLESRenderer::CreateVAOs()
+Render3DError OpenGLES2Renderer::CreateVAOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -958,7 +605,7 @@ Render3DError OpenGLESRenderer::CreateVAOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyVAOs()
+void OpenGLES2Renderer::DestroyVAOs()
 {
 	if (!this->isVAOSupported)
 	{
@@ -971,7 +618,7 @@ void OpenGLESRenderer::DestroyVAOs()
 	this->isVAOSupported = false;
 }
 
-Render3DError OpenGLESRenderer::CreateFBOs()
+Render3DError OpenGLES2Renderer::CreateFBOs()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -983,9 +630,10 @@ Render3DError OpenGLESRenderer::CreateFBOs()
 	
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.fboClearImageID);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT0, GL_TEXTURE_2D, OGLRef.texClearImageColorID, 0);
+#ifndef __vita__
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID, 0);
 	glFramebufferTexture2D(GL_FRAMEBUFFER, GL_STENCIL_ATTACHMENT, GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID, 0);
-	
+#endif
 	if (glCheckFramebufferStatus(GL_FRAMEBUFFER) != GL_FRAMEBUFFER_COMPLETE)
 	{
 		INFO("OpenGLES2: Failed to created FBOs. Some emulation features will be disabled.\n");
@@ -1007,7 +655,7 @@ Render3DError OpenGLESRenderer::CreateFBOs()
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::DestroyFBOs()
+void OpenGLES2Renderer::DestroyFBOs()
 {
 	if (!this->isFBOSupported)
 	{
@@ -1022,7 +670,7 @@ void OpenGLESRenderer::DestroyFBOs()
 	this->isFBOSupported = false;
 }
 
-Render3DError OpenGLESRenderer::InitFinalRenderStates(const std::set<std::string> *oglExtensionSet)
+Render3DError OpenGLES2Renderer::InitFinalRenderStates(const std::set<std::string> *oglExtensionSet)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1042,22 +690,25 @@ Render3DError OpenGLESRenderer::InitFinalRenderStates(const std::set<std::string
 	}
 	
 	// Mirrored Repeat Mode Support
+#ifdef __vita__
+	OGLRef.stateTexMirroredRepeat = GL_REPEAT;
+#else
 	OGLRef.stateTexMirroredRepeat = GL_MIRRORED_REPEAT;
-	
+#endif
 	// Always enable depth test, and control using glDepthMask().
 	glEnable(GL_DEPTH_TEST);
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::InitTextures()
+Render3DError OpenGLES2Renderer::InitTextures()
 {
 	this->ExpandFreeTextures();
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::InitTables()
+Render3DError OpenGLES2Renderer::InitTables()
 {
 	static bool needTableInit = true;
 	
@@ -1072,7 +723,7 @@ Render3DError OpenGLESRenderer::InitTables()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateToonTable()
+Render3DError OpenGLES2Renderer::CreateToonTable()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1092,7 +743,7 @@ Render3DError OpenGLESRenderer::CreateToonTable()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DestroyToonTable()
+Render3DError OpenGLES2Renderer::DestroyToonTable()
 {
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ToonTable);
 	glBindTexture(GL_TEXTURE_2D, 0);
@@ -1102,7 +753,7 @@ Render3DError OpenGLESRenderer::DestroyToonTable()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UploadToonTable(const GLuint *toonTableBuffer)
+Render3DError OpenGLES2Renderer::UploadToonTable(const GLuint *toonTableBuffer)
 {
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ToonTable);
 	glBindTexture(GL_TEXTURE_2D, this->ref->texToonTableID);
@@ -1112,13 +763,14 @@ Render3DError OpenGLESRenderer::UploadToonTable(const GLuint *toonTableBuffer)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::CreateClearImage()
+Render3DError OpenGLES2Renderer::CreateClearImage()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
 	glGenTextures(1, &OGLRef.texClearImageColorID);
+#ifndef __vita__
 	glGenTextures(1, &OGLRef.texClearImageDepthStencilID);
-	
+#endif
 	glActiveTexture(GL_TEXTURE0 + OGLTextureUnitID_ClearImage);
 	
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageColorID);
@@ -1127,7 +779,7 @@ Render3DError OpenGLESRenderer::CreateClearImage()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 256, 192, 0, GL_RGBA, GL_UNSIGNED_BYTE, NULL);
-	
+#ifndef __vita__
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
@@ -1135,13 +787,13 @@ Render3DError OpenGLESRenderer::CreateClearImage()
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);
 	//glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_COMPARE_MODE, GL_NONE);
 	glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH24_STENCIL8_OES, 256, 192, 0, GL_DEPTH_STENCIL_OES, GL_UNSIGNED_INT_24_8_OES, NULL);
-	
+#endif
 	glActiveTexture(GL_TEXTURE0);
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DestroyClearImage()
+Render3DError OpenGLES2Renderer::DestroyClearImage()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1149,12 +801,13 @@ Render3DError OpenGLESRenderer::DestroyClearImage()
 	glBindTexture(GL_TEXTURE_2D, 0);
 	glActiveTexture(GL_TEXTURE0);
 	glDeleteTextures(1, &OGLRef.texClearImageColorID);
+#ifndef __vita__
 	glDeleteTextures(1, &OGLRef.texClearImageDepthStencilID);
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UploadClearImage(const GLushort *clearImageColorBuffer, const GLint *clearImageDepthBuffer)
+Render3DError OpenGLES2Renderer::UploadClearImage(const GLushort *clearImageColorBuffer, const GLint *clearImageDepthBuffer)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1162,8 +815,10 @@ Render3DError OpenGLESRenderer::UploadClearImage(const GLushort *clearImageColor
 	
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageColorID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, clearImageColorBuffer);
+#ifndef __vita__
 	glBindTexture(GL_TEXTURE_2D, OGLRef.texClearImageDepthStencilID);
 	glTexSubImage2D(GL_TEXTURE_2D, 0, 0, 0, 256, 192, GL_DEPTH_STENCIL_OES, GL_UNSIGNED_INT_24_8_OES, clearImageDepthBuffer);
+#endif
 	glBindTexture(GL_TEXTURE_2D, 0);
 	
 	glActiveTexture(GL_TEXTURE0);
@@ -1171,7 +826,7 @@ Render3DError OpenGLESRenderer::UploadClearImage(const GLushort *clearImageColor
 	return OGLERROR_NOERR;
 }
 
-void OpenGLESRenderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
+void OpenGLES2Renderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
 {
 	std::string oglExtensionString = std::string((const char *)glGetString(GL_EXTENSIONS));
 	
@@ -1195,7 +850,7 @@ void OpenGLESRenderer::GetExtensionSet(std::set<std::string> *oglExtensionSet)
 	INFO("{ ExtensionSet : %s }\n", oglExtensionString.c_str());
 }
 
-Render3DError OpenGLESRenderer::ExpandFreeTextures()
+Render3DError OpenGLES2Renderer::ExpandFreeTextures()
 {
 	static const int kInitTextures = 128;
 	GLuint oglTempTextureID[kInitTextures];
@@ -1209,7 +864,7 @@ Render3DError OpenGLESRenderer::ExpandFreeTextures()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupVertices(const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList, GLushort *outIndexBuffer, unsigned int *outIndexCount)
+Render3DError OpenGLES2Renderer::SetupVertices(const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList, GLushort *outIndexBuffer, unsigned int *outIndexCount)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	const unsigned int polyCount = polyList->count;
@@ -1248,7 +903,7 @@ Render3DError OpenGLESRenderer::SetupVertices(const VERTLIST *vertList, const PO
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::EnableVertexAttributes(const VERTLIST *vertList, const GLushort *indexBuffer, const unsigned int vertIndexCount)
+Render3DError OpenGLES2Renderer::EnableVertexAttributes(const VERTLIST *vertList, const GLushort *indexBuffer, const unsigned int vertIndexCount)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1278,7 +933,7 @@ Render3DError OpenGLESRenderer::EnableVertexAttributes(const VERTLIST *vertList,
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DisableVertexAttributes()
+Render3DError OpenGLES2Renderer::DisableVertexAttributes()
 {
 	if (this->isVAOSupported)
 	{
@@ -1297,26 +952,37 @@ Render3DError OpenGLESRenderer::DisableVertexAttributes()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SelectRenderingFramebuffer()
+Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
-
+#ifdef __vita__
+	if (GPU->GetDisplayMain()->GetEngineID() == GPUEngineID_Main) {
+		glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
+		top_changed = 3;
+	} else {
+		glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
+		bottom_changed = 3;
+	}
+#else
 	OGLRef.selectedRenderingFBO = OGLRef.fboFinalOutputID;
 	glBindFramebuffer(GL_FRAMEBUFFER, OGLRef.selectedRenderingFBO);
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ReadBackPixels()
+Render3DError OpenGLES2Renderer::ReadBackPixels()
 {
 	const unsigned int i = this->doubleBufferIndex;
-	
-	this->gpuScreen3DHasNewData[i] = true;
-	
+#ifndef __vita__
+	OGLESRenderRef &OGLRef = *this->ref;
+	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
+	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
+	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
+#endif
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DeleteTexture(const TexCacheItem *item)
+Render3DError OpenGLES2Renderer::DeleteTexture(const TexCacheItem *item)
 {
 	this->ref->freeTextureIDs.push((GLuint)item->texid);
 	if(this->currTexture == item)
@@ -1327,19 +993,19 @@ Render3DError OpenGLESRenderer::DeleteTexture(const TexCacheItem *item)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::BeginRender(const GFX3D_State *renderState)
+Render3DError OpenGLES2Renderer::BeginRender(const GFX3D_State &renderState)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	this->doubleBufferIndex = (this->doubleBufferIndex + 1) & 0x01;
 	
 	this->SelectRenderingFramebuffer();
 	
-	glUniform1i(OGLRef.uniformEnableAlphaTest, renderState->enableAlphaTest ? GL_TRUE : GL_FALSE);
-	glUniform1f(OGLRef.uniformAlphaTestRef, divide5bitBy31_LUT[renderState->alphaTestRef]);
-	glUniform1i(OGLRef.uniformToonShadingMode, renderState->shading);
-	glUniform1i(OGLRef.uniformWBuffer, renderState->wbuffer);
+	glUniform1i(OGLRef.uniformEnableAlphaTest, renderState.enableAlphaTest ? GL_TRUE : GL_FALSE);
+	glUniform1f(OGLRef.uniformAlphaTestRef, divide5bitBy31_LUT[renderState.alphaTestRef]);
+	glUniform1i(OGLRef.uniformToonShadingMode, renderState.shading);
+	glUniform1i(OGLRef.uniformWBuffer, renderState.wbuffer);
 	
-	if(renderState->enableAlphaBlending)
+	if(renderState.enableAlphaBlending)
 	{
 		glEnable(GL_BLEND);
 	}
@@ -1353,7 +1019,7 @@ Render3DError OpenGLESRenderer::BeginRender(const GFX3D_State *renderState)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError OpenGLES2Renderer::PreRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	unsigned int vertIndexCount = 0;
@@ -1364,8 +1030,14 @@ Render3DError OpenGLESRenderer::PreRender(const GFX3D_State *renderState, const 
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError OpenGLES2Renderer::RenderGeometry(const GFX3D_State *renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
+	if (polyList->count > 0)
+		this->PreRender(renderState, vertList, polyList, indexList);
+	else {
+		this->PostRender();
+		return OGLERROR_NOERR;
+	}
 	OGLESRenderRef &OGLRef = *this->ref;
 	u32 lastTexParams = 0;
 	u32 lastTexPalette = 0;
@@ -1386,6 +1058,11 @@ Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const V
 	
 	static const unsigned int indexIncrementLUT[] = {3, 6, 3, 6, 3, 4, 3, 4};
 	
+	int batching = 0;
+	GLushort *batch_start = 0;
+	size_t batched_draws = 0;
+	GLenum lastPolyPrimitive = GL_TRIANGLES;
+
 	for(unsigned int i = 0; i < polyCount; i++)
 	{
 		const POLY *poly = &polyList->list[indexList->list[i]];
@@ -1393,23 +1070,32 @@ Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const V
 		// Set up the polygon if it changed
 		if(lastPolyAttr != poly->polyAttr || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastPolyAttr = poly->polyAttr;
 			this->SetupPolygon(poly);
+			batching = 0;
 		}
 		
 		// Set up the texture if it changed
 		if(lastTexParams != poly->texParam || lastTexPalette != poly->texPalette || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastTexParams = poly->texParam;
 			lastTexPalette = poly->texPalette;
 			this->SetupTexture(poly, renderState->enableTexturing);
+			batching = 0;
 		}
 		
 		// Set up the viewport if it changed
 		if(lastViewport != poly->viewport || i == 0)
 		{
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
 			lastViewport = poly->viewport;
 			this->SetupViewport(poly);
+			batching = 0;
 		}
 		
 		// In wireframe mode, redefine all primitives as GL_LINE_LOOP rather than
@@ -1419,33 +1105,52 @@ Render3DError OpenGLESRenderer::DoRender(const GFX3D_State *renderState, const V
 		// extra diagonal line.
 		const GLenum polyPrimitive = !poly->isWireframe() ? oglPrimitiveType[poly->vtxFormat] : GL_LINE_LOOP;
 		
+		if (polyPrimitive != lastPolyPrimitive || polyPrimitive != GL_TRIANGLES) {
+			if (batching)
+				glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
+			batching = 0;
+		}
+		
 		// Render the polygon
 		const unsigned int vertIndexCount = indexIncrementLUT[poly->vtxFormat];
-		glDrawElements(polyPrimitive, vertIndexCount, GL_UNSIGNED_SHORT, indexBufferPtr);
+		if (batching) {
+			batched_draws += vertIndexCount;
+		} else {
+			lastPolyPrimitive = polyPrimitive;
+			batch_start = indexBufferPtr;
+			batched_draws = vertIndexCount;
+			batching = 1;
+		}
 		indexBufferPtr += vertIndexCount;
 	}
 	
+	glDrawElements(lastPolyPrimitive, batched_draws, GL_UNSIGNED_SHORT, batch_start);
+	
+	this->PostRender();
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::PostRender()
+Render3DError OpenGLES2Renderer::PostRender()
 {
 	this->DisableVertexAttributes();
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::EndRender(const u64 frameCount)
+Render3DError OpenGLES2Renderer::EndRender(const u64 frameCount)
 {
 	//needs to happen before endgl because it could free some textureids for expired cache items
 	TexCache_EvictFrame();
 	
+#ifdef __vita__
+	glBindFramebuffer(GL_FRAMEBUFFER, 0);
+#else
 	this->ReadBackPixels();
-	
+#endif
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UpdateClearImage(const u16 *__restrict colorBuffer, const u16 *__restrict depthBuffer, const u8 clearStencil, const u8 xScroll, const u8 yScroll)
+Render3DError OpenGLES2Renderer::UpdateClearImage(const u16 *__restrict colorBuffer, const u16 *__restrict depthBuffer, const u8 clearStencil, const u8 xScroll, const u8 yScroll)
 {
 	static const size_t pixelsPerLine = 256;
 	static const size_t lineCount = 192;
@@ -1502,7 +1207,7 @@ Render3DError OpenGLESRenderer::UpdateClearImage(const u16 *__restrict colorBuff
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::UpdateToonTable(const u16 *toonTableBuffer)
+Render3DError OpenGLES2Renderer::UpdateToonTable(const u16 *toonTableBuffer)
 {
 	static CACHE_ALIGN u16 currentToonTable16[32] = {0};
 
@@ -1520,7 +1225,7 @@ Render3DError OpenGLESRenderer::UpdateToonTable(const u16 *toonTableBuffer)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ClearUsingImage() const
+Render3DError OpenGLES2Renderer::ClearUsingImage() const
 {
 	static u8 lastClearStencil = 0;
 	
@@ -1547,7 +1252,7 @@ Render3DError OpenGLESRenderer::ClearUsingImage() const
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::ClearUsingValues(const u8 r, const u8 g, const u8 b, const u8 a, const u32 clearDepth, const u8 clearStencil) const
+Render3DError OpenGLES2Renderer::ClearUsingValues(const u8 r, const u8 g, const u8 b, const u8 a, const u32 clearDepth, const u8 clearStencil) const
 {
 	static u8 last_r = 0;
 	static u8 last_g = 0;
@@ -1582,10 +1287,12 @@ Render3DError OpenGLESRenderer::ClearUsingValues(const u8 r, const u8 g, const u
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
+Render3DError OpenGLES2Renderer::SetupPolygon(const POLY *thePoly)
 {
 	static unsigned int lastTexBlendMode = 0;
 	static int lastStencilState = -1;
+
+	//printf("SetupPolygon called\n");
 	
 	OGLESRenderRef &OGLRef = *this->ref;
 	const PolygonAttributes attr = thePoly->getAttributes();
@@ -1598,21 +1305,19 @@ Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
 	glUniform1f(OGLRef.uniformPolyAlpha, thePolyAlpha);
 	
 	// Set up depth test mode
-	static const GLenum oglDepthFunc[2] = {GL_LESS, GL_EQUAL};
+	static const GLenum oglDepthFunc[2] = {launched_rom->opt.depth_resolve_mode ? GL_LEQUAL : GL_LESS, GL_EQUAL};
 	glDepthFunc(oglDepthFunc[attr.enableDepthEqualTest]);
 	
 	// Set up culling mode
-	static const GLenum oglCullingMode[4] = {GL_FRONT_AND_BACK, GL_FRONT, GL_BACK, 0};
-	GLenum cullingMode = oglCullingMode[attr.surfaceCullingMode];
-	
-	if (cullingMode == 0)
+	if (attr.surfaceCullingMode == 3)
 	{
 		glDisable(GL_CULL_FACE);
 	}
 	else
 	{
+		static const GLenum oglCullingMode[3] = {GL_FRONT_AND_BACK, GL_FRONT, GL_BACK};
 		glEnable(GL_CULL_FACE);
-		glCullFace(cullingMode);
+		glCullFace(oglCullingMode[attr.surfaceCullingMode]);
 	}
 	
 	// Set up depth write
@@ -1686,6 +1391,7 @@ Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
 		glUniform1i(OGLRef.uniformPolygonMode, attr.polygonMode);
 			
 		// Update the toon table if necessary
+		
 		if (this->toonTableNeedsUpdate && attr.polygonMode == 2)
 		{
 			this->UploadToonTable(this->currentToonTable32);
@@ -1696,7 +1402,7 @@ Render3DError OpenGLESRenderer::SetupPolygon(const POLY *thePoly)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupTexture(const POLY *thePoly, bool enableTexturing)
+Render3DError OpenGLES2Renderer::SetupTexture(const POLY *thePoly, bool enableTexturing)
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	const PolygonTexParams params = thePoly->getTexParams();
@@ -1717,10 +1423,11 @@ Render3DError OpenGLESRenderer::SetupTexture(const POLY *thePoly, bool enableTex
 	if(newTexture != this->currTexture)
 	{
 		this->currTexture = newTexture;
+
 		//has the ogl renderer initialized the texture?
-		/*if(!this->currTexture->deleteCallback)
+		if(!this->currTexture->GetDeleteCallback())
 		{
-			this->currTexture->deleteCallback = texDeleteCallback;
+			this->currTexture->SetDeleteCallback(texDeleteCallback, 0, 0);
 			
 			if(OGLRef.freeTextureIDs.empty())
 			{
@@ -1741,19 +1448,21 @@ Render3DError OpenGLESRenderer::SetupTexture(const POLY *thePoly, bool enableTex
 						 this->currTexture->sizeX, this->currTexture->sizeY, 0,
 						 GL_RGBA, GL_UNSIGNED_BYTE, this->currTexture->decoded);
 		}
-		else*/
+		else
 		{
 			//otherwise, just bind it
 			glBindTexture(GL_TEXTURE_2D, (GLuint)this->currTexture->texid);
 		}
 		
 		glUniform2f(OGLRef.uniformTexScale, this->currTexture->invSizeX, this->currTexture->invSizeY);
+	} else {
+		glBindTexture(GL_TEXTURE_2D, (GLuint)this->currTexture->texid);
 	}
 	
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::SetupViewport(const POLY *thePoly)
+Render3DError OpenGLES2Renderer::SetupViewport(const POLY *thePoly)
 {
 	VIEWPORT viewport;
 	viewport.decode(thePoly->viewport);
@@ -1762,7 +1471,7 @@ Render3DError OpenGLESRenderer::SetupViewport(const POLY *thePoly)
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::Reset()
+Render3DError OpenGLES2Renderer::Reset()
 {
 	OGLESRenderRef &OGLRef = *this->ref;
 	
@@ -1798,9 +1507,9 @@ Render3DError OpenGLESRenderer::Reset()
 	return OGLERROR_NOERR;
 }
 
-Render3DError OpenGLESRenderer::RenderFinish()
+Render3DError OpenGLES2Renderer::RenderFinish()
 {
-	const unsigned int i = this->doubleBufferIndex;
+	/*const unsigned int i = this->doubleBufferIndex;
 	
 	if (!this->gpuScreen3DHasNewData[i])
 	{
@@ -1808,14 +1517,43 @@ Render3DError OpenGLESRenderer::RenderFinish()
 	}
 	
 	OGLESRenderRef &OGLRef = *this->ref;
-	
 	u32 *__restrict workingBuffer = this->GPU_screen3D[i];
 	glReadPixels(0, 0, 256, 192, GL_RGBA, GL_UNSIGNED_BYTE, workingBuffer);
 	this->ConvertFramebuffer(workingBuffer, (u32 *)GPU->GetEngineMain()->Get3DFramebufferRGBA6665());
-	
-	this->gpuScreen3DHasNewData[i] = false;
+	this->gpuScreen3DHasNewData[i] = false;*/
 	
 	return OGLERROR_NOERR;
+}
+
+Render3DError OpenGLES2Renderer::Render(const GFX3D &engine)
+{
+	Render3DError error = RENDER3DERROR_NOERR;
+	
+	error = this->BeginRender(engine.renderState);
+	if (error != RENDER3DERROR_NOERR)
+	{
+		return error;
+	}
+	
+	struct GFX3D_ClearColor
+	{
+		u8 r;
+		u8 g;
+		u8 b;
+		u8 a;
+	} clearColor;
+	
+	clearColor.r = engine.renderState.clearColor & 0x1F;
+	clearColor.g = (engine.renderState.clearColor >> 5) & 0x1F;
+	clearColor.b = (engine.renderState.clearColor >> 10) & 0x1F;
+	clearColor.a = (engine.renderState.clearColor >> 16) & 0x1F;
+	const u8 polyID = (engine.renderState.clearColor >> 24) & 0x3F;
+
+	this->ClearUsingValues(clearColor.r, clearColor.g, clearColor.b, clearColor.a, engine.renderState.clearDepth, polyID);
+	this->RenderGeometry(&engine.renderState, engine.vertlist, engine.polylist, &engine.indexlist);
+	this->EndRender(engine.render3DFrameCount);
+	
+	return error;
 }
 
 static Render3D* OGLInit()
@@ -1905,6 +1643,7 @@ static Render3D* OGLInit()
 	return _OGLRenderer;
 }
 
+
 static void OGLReset()
 {
 	if(!BEGINGL())
@@ -1932,3 +1671,4 @@ GPU3DInterface gpu3DglES = {
 	OGLInit,
 	OGLClose
 };
+

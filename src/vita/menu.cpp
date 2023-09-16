@@ -2,6 +2,7 @@
 #include <psp2/touch.h>
 #include <vita2d.h>
 #include <psp2/io/dirent.h>
+#include <imgui_vita.h>
 
 #include <psp2/kernel/processmgr.h>
 
@@ -14,99 +15,126 @@
 
 #include "../NDSSystem.h"
 
-//Very rough implementation of a rom selector... Yeah I know its ugly
-char* menu_FileBrowser() {
-	std::vector<SceIoDirent> entries;
-	SceUID directory;
-	SceIoDirent dirent;
-	directory = sceIoDopen("ux0:/data/desmume");
+game_entry *list = NULL;
 
-	while(sceIoDread(directory, &dirent) > 0){
-		char *extension = strrchr(dirent.d_name,'.');
-		if(extension != NULL){
-			if(strcmp(extension, ".nds") == 0)
-				entries.push_back(dirent);
+void load_cfg(const char *cfg, game_options *opt) {
+	char buffer[128];
+	int value;
+	FILE *config = fopen(cfg, "r");
+	
+	// Default values
+	opt->threaded_2d_render = 1;
+	opt->depth_resolve_mode = 0;
+	opt->has_dynarec = 1;
+	opt->has_sound = 1;
+	opt->frameskip = 1;
+
+	if (config) {
+		while (EOF != fscanf(config, "%[^=]=%d\n", buffer, &value)) {
+			if (strcmp("threaded_2d_render", buffer) == 0) opt->threaded_2d_render = value;
+			else if (strcmp("depth_resolve_mode", buffer) == 0) opt->depth_resolve_mode = value;
+			else if (strcmp("has_dynarec", buffer) == 0) opt->has_dynarec = value;
+			else if (strcmp("has_sound", buffer) == 0) opt->has_sound = value;
+			else if (strcmp("frameskip", buffer) == 0) opt->frameskip = value;
+		}
+		fclose(config);
+	}
+}
+
+void save_cfg(game_entry *e) {
+	char cfg_file[256];
+	size_t zero_spot = strlen(e->name) - 4;
+	e->name[zero_spot] = 0;
+	sprintf(cfg_file, "ux0:data/desmume/%s.cfg", e->name);
+	e->name[zero_spot] = '.';
+	FILE *f = fopen(cfg_file, "w");
+	fprintf(f, "%s=%hhu\n", "threaded_2d_render", (int)e->opt.threaded_2d_render);
+	fprintf(f, "%s=%hhu\n", "depth_resolve_mode", (int)e->opt.depth_resolve_mode);
+	fprintf(f, "%s=%hhu\n", "has_dynarec", (int)e->opt.has_dynarec);
+	fprintf(f, "%s=%hhu\n", "has_sound", (int)e->opt.has_sound);
+	fprintf(f, "%s=%d\n", "frameskip", (int)e->opt.frameskip);
+	fclose(f);
+}
+
+game_entry *launched_rom = NULL;
+char rom_to_launch[256];
+char *menu_FileBrowser() {
+	ImGui::CreateContext();
+	ImGui_ImplVitaGL_Init();
+	ImGui_ImplVitaGL_TouchUsage(false);
+	ImGui_ImplVitaGL_GamepadUsage(true);
+	ImGui_ImplVitaGL_MouseStickUsage(false);
+	ImGui::GetIO().MouseDrawCursor = false;
+	
+	SceUID fd = sceIoDopen("ux0:data/desmume");
+	SceIoDirent g_dir;
+	while (sceIoDread(fd, &g_dir) > 0) {
+		if (!strcmp(&g_dir.d_name[strlen(g_dir.d_name) - 4], ".nds")) {
+			game_entry *entry = (game_entry *)malloc(sizeof(game_entry));
+			strcpy(entry->name, g_dir.d_name);
+			entry->next = list;
+			char cfg_name[256];
+			g_dir.d_name[strlen(g_dir.d_name) - 4] = 0;
+			sprintf(cfg_name, "ux0:data/desmume/%s.cfg", g_dir.d_name);
+			load_cfg(cfg_name, &entry->opt);
+			list = entry;
 		}
 	}
-
-	if(entries.empty()) {
-		/*video_BeginDrawing();
-		vita2d_pgf_draw_textf(video_font,50,100, RGBA8(0,0,255,255) ,1.0f, "Put roms inside rom folder (ux0:/data/desmume).");
-		video_EndDrawing();*/
-
-		sceKernelDelayThread(1000000);
-		return NULL;
-	}
-
-	int cursor = 0;
-	bool buttonPressed = false;
-	int count;
+	sceIoDclose(fd);
+	
+	game_entry *r = NULL;
+	game_entry *focused = NULL;
+	uint32_t oldpad;
 	SceCtrlData pad;
-	while(true) {
+	int focus = 0;
+	printf("Starting menu loop\n");
+	while (!r) {
 		sceCtrlPeekBufferPositive(0, &pad, 1);
-
-		if(!pad.buttons)
-			buttonPressed = 0;
-
-		if(pad.buttons & SCE_CTRL_CROSS && !buttonPressed){
-			break;
+		if ((pad.buttons & SCE_CTRL_LTRIGGER) && !(oldpad & SCE_CTRL_LTRIGGER)) {
+			focus = 0;
+		} else if ((pad.buttons & SCE_CTRL_RTRIGGER) && !(oldpad & SCE_CTRL_RTRIGGER)) {
+			focus = 1;
 		}
-
-		if(pad.buttons & SCE_CTRL_SQUARE && !buttonPressed){
-			UserConfiguration.jitEnabled = !UserConfiguration.jitEnabled;
+		oldpad = pad.buttons;
+		ImGui_ImplVitaGL_NewFrame();
+		game_entry *e = list;
+		ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiSetCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(600, 544), ImGuiSetCond_Always);
+		if (focus == 0) ImGui::SetNextWindowFocus();
+		ImGui::Begin("##main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
+		while (e) {
+			if (ImGui::Button(e->name, ImVec2(-1.0f, 0.0f))) {
+				r = e;
+			}
+			if (ImGui::IsItemFocused()) {
+				focused = e;
+			}
+			e = e->next;
 		}
-
-		if(pad.buttons & SCE_CTRL_CIRCLE && !buttonPressed){
-			UserConfiguration.soundEnabled = !UserConfiguration.soundEnabled;
+		ImGui::End();
+		if (focus == 1) ImGui::SetNextWindowFocus();
+		ImGui::SetNextWindowPos(ImVec2(600, 0), ImGuiSetCond_Always);
+		ImGui::SetNextWindowSize(ImVec2(360, 544), ImGuiSetCond_Always);
+		ImGui::Begin("##options", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing);
+		if (focused) {
+			ImGui::Checkbox("Use Dynarec", (bool *)&focused->opt.has_dynarec);
+			ImGui::Checkbox("Emulate Sound", (bool *)&focused->opt.has_sound);
+			ImGui::SliderInt("Frameskip", &focused->opt.frameskip, 0, 9);
+			ImGui::Separator();
+			ImGui::Checkbox("Alternate Depth Resolve Mode", (bool *)&focused->opt.depth_resolve_mode);
+			ImGui::Checkbox("Threaded 2D Rendering", (bool *)&focused->opt.threaded_2d_render);
 		}
-
-		if(pad.buttons & SCE_CTRL_LTRIGGER && !buttonPressed){
-			UserConfiguration.threadedRendering = !UserConfiguration.threadedRendering;
-		}
-
-		if(pad.buttons & SCE_CTRL_DOWN && !buttonPressed){
-			cursor++;
-		}
-
-		if(pad.buttons & SCE_CTRL_UP && !buttonPressed){
-			cursor--;
-		}
-
-		if(pad.buttons & SCE_CTRL_LEFT && !buttonPressed){
-			if(UserConfiguration.frameSkip > 0)
-			UserConfiguration.frameSkip--;
-		}
-
-		if(pad.buttons & SCE_CTRL_RIGHT && !buttonPressed){
-			UserConfiguration.frameSkip++;
-		}
-
-		if(pad.buttons)
-			buttonPressed = 1;
-
-		if(cursor < 0)
-			cursor = 0;
-
-		if(cursor > entries.size() - 1)
-			cursor = entries.size() - 1;
-
-		video_BeginDrawing();
-		count = 0;
-		for( std::vector<SceIoDirent>::iterator it = entries.begin(); it != entries.end(); it++){
-			vita2d_pgf_draw_text(video_font,0,15 + count*15,cursor == count ? RGBA8(0,255,0,255) : RGBA8(255,255,255,255),1.0f,it->d_name);
-			count++;
-		}
-		vita2d_pgf_draw_textf(video_font,500,20, RGBA8(0,0,255,255) ,1.0f,"Press ([ ]) to %s JIT", UserConfiguration.jitEnabled ? "disable" : "enable");
-		vita2d_pgf_draw_textf(video_font,500,40, RGBA8(0,0,255,255) ,1.0f,"Press (O) to %s Sound", UserConfiguration.soundEnabled ? "disable" : "enable");
-		vita2d_pgf_draw_textf(video_font,500,60, RGBA8(0,0,255,255) ,1.0f,"Press Left or Right DPAD to change frameSkip");
-		vita2d_pgf_draw_textf(video_font,500,80, RGBA8(0,0,255,255) ,1.0f,"Current frameSkip value: %u", UserConfiguration.frameSkip);
-		vita2d_pgf_draw_textf(video_font,500,100, RGBA8(0,0,255,255) ,1.0f,"Press L to %s threaded Rendering", UserConfiguration.threadedRendering ? "disable" : "enable");
-		video_EndDrawing();
+		ImGui::End();
+		glViewport(0, 0, static_cast<int>(ImGui::GetIO().DisplaySize.x), static_cast<int>(ImGui::GetIO().DisplaySize.y));
+		ImGui::Render();
+		ImGui_ImplVitaGL_RenderDrawData(ImGui::GetDrawData());
+		vglSwapBuffers(GL_FALSE);
 	}
-
-	char *filename = (char*)malloc(4096);
-	sprintf(filename, "ux0:/data/desmume/%s", entries[cursor].d_name);
-	return filename;
+	
+	sprintf(rom_to_launch, "ux0:data/desmume/%s", r->name);
+	launched_rom = r;
+	save_cfg(r);
+	return rom_to_launch;
 }
 
 //Uninplemented

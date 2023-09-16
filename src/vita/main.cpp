@@ -19,14 +19,7 @@
 * Boston, MA 02111-1307, USA.
 */
 
-#include <psp2/ctrl.h>
-#include <psp2/touch.h>
-#include <psp2/display.h>
-#include <psp2/power.h>
-#include <psp2/kernel/processmgr.h>
-#include <psp2/kernel/modulemgr.h>
-
-#include <gpu_es4/psp2_pvr_hint.h>
+#include <vitasdk.h>
 
 #include "video.h"
 #include "input.h"
@@ -36,8 +29,6 @@
 
 #include <stdio.h>
 #include <malloc.h>
-
-#include <pib.h>
 
 #include "../MMU.h"
 #include "../NDSSystem.h"
@@ -49,6 +40,13 @@
 #include "../mic.h"
 #include "../SPU.h"
 
+extern "C" {
+void vglSwapBuffers(GLboolean has_commondialog);
+};
+
+extern "C" int _newlib_heap_size_user = 128 * 1024 * 1024;
+
+extern "C" GLboolean vglInitExtended(int legacy_pool_size, int width, int height, int ram_threshold, SceGxmMultisampleMode msaa);
 volatile bool execute = FALSE;
 
 GPU3DInterface *core3DList[] = {
@@ -83,7 +81,7 @@ static void desmume_cycle()
 
     NDS_exec<false>();
 
-    if(UserConfiguration.soundEnabled)
+    if (launched_rom->opt.has_sound)
     	SPU_Emulate_user();
 }
 
@@ -129,89 +127,11 @@ static inline void calc_fps(char fps_str[32])
 	}
 }
 
-void PVR_PSP2Init()
-{
-	PVRSRV_PSP2_APPHINT hint;
-  	PVRSRVInitializeAppHint(&hint);
-  	PVRSRVCreateVirtualAppHint(&hint);
-	printf("PVE_PSP2 init OK.");
-}
-
-void init_egl(){
-	const EGLint attribs[] = {
-            EGL_RED_SIZE, 8,
-			EGL_GREEN_SIZE, 8,
-			EGL_BLUE_SIZE, 8,
-			EGL_ALPHA_SIZE, 8,
-			EGL_DEPTH_SIZE, 16,
-			EGL_STENCIL_SIZE, 8,
-			EGL_SURFACE_TYPE, EGL_PBUFFER_BIT,
-			EGL_RENDERABLE_TYPE, EGL_OPENGL_ES2_BIT,
-			EGL_NONE 
-    };
-	EGLint major, minor;
-    EGLint w, h, format;
-    EGLint numConfigs;
-    EGLConfig config;
-    EGLSurface surface;
-    EGLContext context;
-
-	EGLBoolean eRetStatus;
-
-    EGLDisplay display = eglGetDisplay(EGL_DEFAULT_DISPLAY);
-
-    eRetStatus = eglInitialize(display, &major, &minor);
-
-	if( eRetStatus != EGL_TRUE )
-		printf("eglInitialize %d\n", eglGetError());
-
-	eRetStatus = eglGetConfigs (display, &config, 1, &numConfigs);
-	if( eRetStatus != EGL_TRUE )
-		printf("eglGetConfigs %d\n", eglGetError());
-
-    eRetStatus = eglChooseConfig(display, attribs, &config, 1, &numConfigs);
-
-	if( eRetStatus != EGL_TRUE )
-		printf("eglChooseConfig %d\n", eglGetError());
-
-	const EGLint surfaceAttribs[] = {
-            EGL_WIDTH, 256,
-			EGL_HEIGHT, 256,
-			EGL_LARGEST_PBUFFER, EGL_FALSE,
-			EGL_NONE
-    };
-	
-    surface = eglCreatePbufferSurface(display, config, surfaceAttribs);
-
-	eRetStatus = eglBindAPI(EGL_OPENGL_ES_API);
-	if (eRetStatus != EGL_TRUE)
-		printf("eglBindAPI %d\n", eglGetError());
-
-	const EGLint contextAttribs[] = {
-			EGL_CONTEXT_CLIENT_VERSION, 2,
-			EGL_NONE
-    };
-
-    context = eglCreateContext(display, config, NULL, contextAttribs);
-
-	if (context == EGL_NO_CONTEXT)
-		printf("eglCreateContext %d\n", eglGetError());
-
-
-    if (eglMakeCurrent(display, surface, surface, context) == EGL_FALSE)
-		printf("OpenGLES2: Could not initialize %d\n", eglGetError());
-}
-
 char fps_str[32] = {0};
-int main()
+int main(int argc, char *argv[])
 {
-	sceKernelLoadStartModule("vs0:sys/external/libfios2.suprx", 0, NULL, 0, NULL, NULL);
-	sceKernelLoadStartModule("vs0:sys/external/libc.suprx", 0, NULL, 0, NULL, NULL);
-	sceKernelLoadStartModule("ux0:data/desmume/plugins/libgpu_es4_ext.suprx", 0, NULL, 0, NULL, NULL);
-	sceKernelLoadStartModule("ux0:data/desmume/plugins/libIMGEGL.suprx", 0, NULL, 0, NULL, NULL);
-
-	PVR_PSP2Init();
-	init_egl();
+	sceSysmoduleLoadModule(SCE_SYSMODULE_RAZOR_CAPTURE);
+	vglInitExtended(0, 960, 544, 32 * 1024 * 1024, SCE_GXM_MULTISAMPLE_4X);
 	video_Init(); 
 
 	scePowerSetArmClockFrequency(444);
@@ -229,10 +149,10 @@ int main()
 	struct NDS_fw_config_data fw_config;
 	NDS_FillDefaultFirmwareConfigData(&fw_config);
   	NDS_Init();
-	NDS_3D_ChangeCore(1);
+	NDS_3D_ChangeCore(2);
 	backup_setManualBackupType(0);
 
-	if(UserConfiguration.jitEnabled){
+	if (launched_rom->opt.has_dynarec) {
 		CommonSettings.use_jit = true;
 		CommonSettings.jit_max_block_size = 100; // Some games can be higher but let's not make it even more unstable
 	}
@@ -245,23 +165,26 @@ int main()
 
 	int i;
 
-	if(UserConfiguration.soundEnabled)
+	if (launched_rom->opt.has_sound)
 		SPU_ChangeSoundCore(SNDCORE_VITA, 735 * 4);
 
 	while (execute) {
 
 		frame_time = sceKernelGetProcessTimeLow();
 
-		for (i = 0; i < UserConfiguration.frameSkip; i++) {
+		for (i = 0; i < launched_rom->opt.frameskip; i++) {
 			NDS_SkipNextFrame();
 			desmume_cycle();
 		}
 
 		desmume_cycle();
 
-		frames += 1 + UserConfiguration.frameSkip;
+		frames += 1 + launched_rom->opt.frameskip;
 
 		calc_fps(fps_str);
+		
+		video_DrawFrame();
+		vglSwapBuffers(GL_FALSE);
 	}
 
 exit:

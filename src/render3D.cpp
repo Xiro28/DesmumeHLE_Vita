@@ -577,7 +577,7 @@ Render3DError Render3D::BeginRender(const GFX3D &engine)
 	return RENDER3DERROR_NOERR;
 }
 
-Render3DError Render3D::RenderGeometry(const GFX3D_State &renderState, const POLYLIST *polyList, const INDEXLIST *indexList)
+Render3DError Render3D::RenderGeometry(const GFX3D_State &renderState, const VERTLIST *vertList, const POLYLIST *polyList, const INDEXLIST *indexList)
 {
 	return RENDER3DERROR_NOERR;
 }
@@ -780,7 +780,7 @@ Render3DError Render3D::Render(const GFX3D &engine)
 	this->UpdateToonTable(engine.renderState.u16ToonTable);
 	this->ClearFramebuffer(engine.renderState);
 	
-	this->RenderGeometry(engine.renderState, engine.polylist, &engine.indexlist);
+	this->RenderGeometry(engine.renderState, engine.vertlist, engine.polylist, &engine.indexlist);
 	
 	if (engine.renderState.enableEdgeMarking)
 	{

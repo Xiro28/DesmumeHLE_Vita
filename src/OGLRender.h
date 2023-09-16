@@ -212,8 +212,8 @@ EXTERNOGLEXT(PFNGLUNMAPBUFFEROESPROC, glUnmapBufferOES)
 enum OGLVertexAttributeID
 {
 	OGLVertexAttributeID_Position	= 0,
-	OGLVertexAttributeID_TexCoord0	= 8,
-	OGLVertexAttributeID_Color		= 3,
+	OGLVertexAttributeID_TexCoord0	= 1,
+	OGLVertexAttributeID_Color		= 2,
 };
 
 enum OGLBindingPointID
@@ -487,8 +487,6 @@ extern CACHE_ALIGN const GLfloat divide5bitBy31_LUT[32];
 extern CACHE_ALIGN const GLfloat divide6bitBy63_LUT[64];
 extern const GLfloat PostprocessVtxBuffer[16];
 extern const GLubyte PostprocessElementBuffer[6];
-
-extern void texDeleteCallback(TexCacheItem *texItem, void *param1, void *param2);
 
 //This is called by OGLRender whenever it initializes.
 //Platforms, please be sure to set this up.
