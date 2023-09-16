@@ -1318,9 +1318,9 @@ void ProcessCommands()
                         SharedMem = args[0];
                     else{
                         //SharedMem += args[0];
-                        printf("%08X\n", SharedMem);
-                        printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
-                        cmd, args[0], args[1], args[2], args[3]);
+                        //printf("%08X\n", SharedMem);
+                        //printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
+                        // cmd, args[0], args[1], args[2], args[3]);
                     }
                 }
                 break;
@@ -1333,14 +1333,14 @@ void ProcessCommands()
                 {
                     // cmdbuf+08 and cmdbuf+0C = bounds
                     // stop channels conditionally
-                    printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
-                       cmd, args[0], args[1], args[2], args[3]);
+                    //printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
+                    //   cmd, args[0], args[1], args[2], args[3]);
                 }
                 break;
 
             default:
-                printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
-                       cmd, args[0], args[1], args[2], args[3]);
+                //printf("unknown sound cmd %08X, %08X %08X %08X %08X\n",
+                //       cmd, args[0], args[1], args[2], args[3]);
                 break;
             }
 

@@ -1677,11 +1677,11 @@ void SPU_Emulate_core()
 		return;
 	}
 	
-	if (soundProcessor->FetchSamples != NULL)
-	{
-		soundProcessor->FetchSamples(SPU_core->outbuf, spu_core_samples, synchmode, synchronizer);
-	}
-	else
+	//if (soundProcessor->FetchSamples != NULL)
+	//{
+	//	soundProcessor->FetchSamples(SPU_core->outbuf, spu_core_samples, synchmode, synchronizer);
+	//}
+	//else
 	{
 		SPU_DefaultFetchSamples(SPU_core->outbuf, spu_core_samples, synchmode, synchronizer);
 	}
@@ -1722,17 +1722,17 @@ void SPU_Emulate_user(bool mix)
 		postProcessBuffer = (s16 *)realloc(postProcessBuffer, postProcessBufferSize);
 	}
 	
-	if (soundProcessor->PostProcessSamples != NULL)
-	{
-		processedSampleCount = soundProcessor->PostProcessSamples(postProcessBuffer, freeSampleCount, synchmode, synchronizer);
-	}
-	else
+	//if (soundProcessor->PostProcessSamples != NULL)
+	//{
+	//	processedSampleCount = soundProcessor->PostProcessSamples(postProcessBuffer, freeSampleCount, synchmode, synchronizer);
+	//}
+	//else
 	{
 		processedSampleCount = SPU_DefaultPostProcessSamples(postProcessBuffer, freeSampleCount, synchmode, synchronizer);
 	}
 	
 	soundProcessor->UpdateAudio(postProcessBuffer, processedSampleCount);
-	WAV_WavSoundUpdate(postProcessBuffer, processedSampleCount, WAVMODE_USER);
+	//WAV_WavSoundUpdate(postProcessBuffer, processedSampleCount, WAVMODE_USER);
 }
 
 void SPU_DefaultFetchSamples(s16 *sampleBuffer, size_t sampleCount, ESynchMode synchMode, ISynchronizingAudioBuffer *theSynchronizer)
