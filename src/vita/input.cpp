@@ -57,9 +57,11 @@ void input_UpdateTouch(){
       default:
         touchPressed = _setTouchLandscape(x, y);
         break;
-    }
+    }*/
 
-    if(x > 930 && y > 514){
+    touchPressed = _setTouchLandscape(x, y);
+
+    /*if(x > 930 && y > 514){
       if(++video_layout > 2)
         video_layout = 0;
     }*/
