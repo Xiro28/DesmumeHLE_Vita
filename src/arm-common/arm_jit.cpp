@@ -178,6 +178,20 @@ static u32 FASTCALL OP_DECODE()
 
 static const ArmOpCompiled op_decode[2][2] = { OP_DECODE<0,0>, OP_DECODE<0,1>, OP_DECODE<1,0>, OP_DECODE<1,1> };
 
+template<int thumb>
+static u32 FASTCALL FAST_OP_DECODE(u32 opcode)
+{
+   u32 cycles;
+
+   if(CONDITION(opcode) == 0xE || TEST_COND(CONDITION(opcode), CODE(opcode), NDS_ARM9.CPSR))
+      cycles = arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)](opcode);
+   else
+      cycles = 1;
+      
+   NDS_ARM9.instruct_adr = NDS_ARM9.next_instruction;
+   return cycles;
+}
+
 
 enum OP_RESULT { OPR_CONTINUE, OPR_INTERPRET, OPR_BRANCHED, OPR_RESULT_SIZE = 2147483647 };
 #define OPR_RESULT(result, cycles) (OP_RESULT)((result) | ((cycles) << 16));
@@ -281,17 +295,24 @@ static void arm_jit_prefetch(uint32_t pc, uint32_t opcode, bool thumb)
    const uint32_t imask = thumb ? 0xFFFFFFFE : 0xFFFFFFFC;
    const uint32_t isize = thumb ? 2 : 4;
 
-   block->load_constant(0, pc & imask);
+   block->load_constant(0, ((pc + isize) & imask));
+   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
+
+   block->add(0, alu2::imm(isize));
+   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, R) + 4 * 15));
+
+   /*block->load_constant(0, pc & imask);
    block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
 
    block->add(0, alu2::imm(isize));
    block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
 
    block->add(0, alu2::imm(isize));
-   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, R) + 4 * 15));
-
+   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, R) + 4 * 15));*/
+   
+   /*
    block->load_constant(0, opcode);
-   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruction)));
+   block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruction)));*/
 }
 
 /////////
@@ -1370,6 +1391,16 @@ static bool instr_is_branch(bool thumb, u32 opcode)
           || (x & JIT_BYPASS);
 }
 
+bool instr_does_prefetch(bool thumb, u32 opcode)
+{
+	u32 x = instr_attributes(thumb, opcode);
+	if(thumb)
+		return thumb_instruction_compilers[opcode>>6]
+			   && (x & BRANCH_ALWAYS);
+	else
+		return instr_is_branch(thumb, opcode) && arm_instruction_compilers[INSTRUCTION_INDEX(opcode)]
+			   && ((x & BRANCH_ALWAYS) || (x & BRANCH_LDM));
+}
 
 
 template<int PROCNUM>
@@ -1398,21 +1429,26 @@ static ArmOpCompiled compile_basicblock()
 
    load_status(3);
 
+   uint32_t opcode = 0;
+   bool intr = false;
+
    for (uint32_t i = 0; i < CommonSettings.jit_max_block_size && !has_ended; i ++, pc += isize)
    {
-      uint32_t opcode = thumb ? _MMU_read16<PROCNUM, MMU_AT_CODE>(pc) : _MMU_read32<PROCNUM, MMU_AT_CODE>(pc);
+      opcode = thumb ? _MMU_read16<PROCNUM, MMU_AT_CODE>(pc) : _MMU_read32<PROCNUM, MMU_AT_CODE>(pc);
 
       ArmOpCompiler compiler = thumb ? thumb_instruction_compilers[opcode >> 6]
                                      : arm_instruction_compilers[INSTRUCTION_INDEX(opcode)];
 
       int result = compiler ? compiler(pc, opcode) : OPR_INTERPRET;
 
+      intr = false;
+
       constant_cycles += OPR_RESULT_CYCLES(result);
       switch (OPR_RESULT_ACTION(result))
       {
          case OPR_INTERPRET:
          {
-            if (compiled_op)
+            //if (compiled_op)
             {
                arm_jit_prefetch<PROCNUM>(pc, opcode, thumb);
                compiled_op = false;
@@ -1421,11 +1457,26 @@ static ArmOpCompiled compile_basicblock()
             regman->flush_all();
             regman->reset();
 
-            block->load_constant(0, (uint32_t)&armcpu_exec<PROCNUM>);
-            call(0);
+            block->load_constant(0, opcode);
+
+            if (thumb)
+               block->load_constant(1, (uint32_t)thumb_instructions_set[ARM9][opcode>>6]);
+            else
+               block->load_constant(1, (uint32_t)&FAST_OP_DECODE<0>);
+
+            call(1);
+
+            if (thumb)
+            {
+               block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
+               block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
+            }
+
             block->add(RCYC, alu2::reg(0));
 
             has_ended = has_ended || instr_is_branch(thumb, opcode);
+
+            intr = true;
 
             break;
          }
@@ -1444,6 +1495,12 @@ static ArmOpCompiled compile_basicblock()
          }
       }
    }
+
+   /*if(!instr_does_prefetch(thumb, opcode))
+	{
+      block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
+      block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
+	}*/
 
    if (compiled_op)
    {

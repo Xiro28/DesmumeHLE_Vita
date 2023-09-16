@@ -7745,6 +7745,12 @@ template void GPUSubsystem::RenderLine<NDSColorFormat_BGR555_Rev>(const u16 l, b
 template void GPUSubsystem::RenderLine<NDSColorFormat_BGR666_Rev>(const u16 l, bool skip);
 template void GPUSubsystem::RenderLine<NDSColorFormat_BGR888_Rev>(const u16 l, bool skip);
 
+template void GPUEngineB::RenderLine<NDSColorFormat_BGR555_Rev>(const u16 l);
+template void GPUEngineA::RenderLine<NDSColorFormat_BGR555_Rev>(const u16 l);
+
+template void GPUEngineBase::ApplyMasterBrightness <NDSColorFormat_BGR555_Rev, true> ();
+template void GPUEngineBase::ApplyMasterBrightness <NDSColorFormat_BGR555_Rev, false> ();
+
 template void ConvertColorBuffer555To8888Opaque<true, true>(const u16 *__restrict src, u32 *__restrict dst, size_t pixCount);
 template void ConvertColorBuffer555To8888Opaque<true, false>(const u16 *__restrict src, u32 *__restrict dst, size_t pixCount);
 template void ConvertColorBuffer555To8888Opaque<false, true>(const u16 *__restrict src, u32 *__restrict dst, size_t pixCount);

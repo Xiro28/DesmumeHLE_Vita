@@ -1,7 +1,7 @@
 TITLE_ID = DSEMU0000
 TARGET   = DeSmuME
 
-PSVITAIP = 10.0.0.208
+PSVITAIP = 192.168.1.55
 
 SOURCE_DIR	= 	src
 INCLUDES 	=	src src/libretro-common/include

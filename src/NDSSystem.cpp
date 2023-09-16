@@ -91,7 +91,8 @@ GameInfo gameInfo;
 NDSSystem nds;
 CFIRMWARE	*firmware = NULL;
 
-Task task2DGPU;
+Task task2DGPUTop;
+Task task2DGPUBottom;
 
 using std::min;
 using std::max;
@@ -197,7 +198,8 @@ int NDS_Init()
 	cheats = new CHEATS();
 	cheatSearch = new CHEATSEARCH();
 
-	task2DGPU.start(false);
+	task2DGPUTop.start(false);
+	task2DGPUBottom.start(false);
 
 	return 0;
 }
@@ -1352,37 +1354,63 @@ typedef enum {
 
 extern "C" void *vglAlloc(uint32_t size, vglMemType type);
 
-//CACHE_ALIGN FragmentColor _outFramebuffer[GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2];
-FragmentColor *_outFramebuffer = NULL;
 
-/*GPUSubsystem * GPU2 = (GPUSubsystem *)malloc_aligned32(sizeof(GPUSubsystem));
+static void * render2DTop(void *arg) {
 
-extern u8 vram_arm9_map_cached[VRAM_ARM9_PAGES];
-extern CACHE_ALIGN u8 ARM9_LCD_cached[0xA4000 + 0x20000];*/
+	GPUEngineA* engine = GPU->GetEngineMain();
 
-static void * render2D(void *arg) {
-	if (!_outFramebuffer) {
-		_outFramebuffer = (FragmentColor *)vglAlloc(GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2, VGL_MEM_RAM);
-	}
+	GPU->UpdateRenderProperties();
+
     // Perform rendering operations here
 	const bool skip = frameSkipper.ShouldSkip2D();
+	const bool isFramebufferRenderNeeded = !engine->GetIsMasterBrightFullIntensity();
 
-	/*memcpy((void*)GPU2, (void*)GPU, sizeof(GPUSubsystem));
-	memcpy(&GPU2->GetEngineMain()->_IORegisterMap_cached, GPU2->GetEngineMain()->_IORegisterMap, sizeof(GPU2->GetEngineMain()->_IORegisterMap_cached));
-	memcpy(&GPU2->GetEngineSub()->_IORegisterMap_cached, GPU2->GetEngineSub()->_IORegisterMap, sizeof(GPU2->GetEngineSub()->_IORegisterMap_cached));*/
-	
+	if (!skip && !(isFramebufferRenderNeeded || engine->WillDisplayCapture(0)))
+		engine->ApplyMasterBrightness<NDSColorFormat_BGR555_Rev, true>();
 
-	for (int i = 0; i < 192; ++i) {
 
-		/*if (i % 10 == 0){
-			memcpy((void*)ARM9_LCD_cached, (void*)MMU.ARM9_LCD, sizeof(MMU.ARM9_LCD));
-			memcpy((void*)vram_arm9_map_cached, (void*)vram_arm9_map, sizeof(vram_arm9_map));
-		}*/
-		
-		GPU->RenderLine<NDSColorFormat_BGR555_Rev>(i, skip);
-	}
+	if (isFramebufferRenderNeeded && !skip)
+		for (int l = 0; l < 192; ++l) 
+			engine->RenderLine<NDSColorFormat_BGR555_Rev>(l);
+	else 
+		for (int l = 0; l < 192; ++l)
+			engine->UpdatePropertiesWithoutRender(l);
 
-	sceClibMemcpy(_outFramebuffer, GPU->GetDisplayInfo().masterNativeBuffer, GPU_FRAMEBUFFER_NATIVE_WIDTH * GPU_FRAMEBUFFER_NATIVE_HEIGHT * 2);
+
+	if (!skip && (isFramebufferRenderNeeded || engine->WillDisplayCapture(191)))
+		engine->ApplyMasterBrightness<NDSColorFormat_BGR555_Rev, false>();
+
+	engine->FramebufferPostprocess();
+
+	return 0;
+}
+
+static void * render2DBottom(void *arg) {
+
+	GPUEngineB* engine = GPU->GetEngineSub();
+
+	GPU->UpdateRenderProperties();
+
+    // Perform rendering operations here
+	const bool skip = frameSkipper.ShouldSkip2D();
+	const bool isFramebufferRenderNeeded = !engine->GetIsMasterBrightFullIntensity();
+
+	if (!skip && !isFramebufferRenderNeeded)
+		engine->ApplyMasterBrightness<NDSColorFormat_BGR555_Rev, true>();
+
+
+	if (isFramebufferRenderNeeded && !skip)
+		for (int l = 0; l < 192; ++l) 
+			engine->RenderLine<NDSColorFormat_BGR555_Rev>(l);
+	else 
+		for (int l = 0; l < 192; ++l)
+			engine->UpdatePropertiesWithoutRender(l);
+ 
+
+	if (!skip && isFramebufferRenderNeeded)
+		engine->ApplyMasterBrightness<NDSColorFormat_BGR555_Rev, false>();
+
+	engine->FramebufferPostprocess();
 
 	return 0;
 }
@@ -1396,7 +1424,12 @@ static void execHardware_hblank()
 	//scroll regs for the next scanline
 	if(nds.VCount<192)
 	{
-		
+		//used by the hle
+		StartScanline(nds.VCount);
+
+		if (!launched_rom->opt.threaded_2d_render)
+			GPU->RenderLine<NDSColorFormat_BGR555_Rev>(nds.VCount, frameSkipper.ShouldSkip2D());
+
 		//trigger hblank dmas
 		//but notice, we do that just after we finished drawing the line
 		//(values copied by this hdma should not be used until the next scanline)
@@ -1611,10 +1644,6 @@ static void execHardware_hstart()
 
 	//trigger hstart dmas
 	triggerDma(EDMAMode_HStart);
-
-	//used by the hle
-	if(nds.VCount<193)
-		StartScanline(nds.VCount-1);
 
 	if(nds.VCount<192)
 	{
@@ -1988,10 +2017,10 @@ void NDS_exec(s32 nb)
 	}
 	else
 	{
-		if (launched_rom->opt.threaded_2d_render)
-			task2DGPU.execute(&render2D, 0);
-		else
-			render2D(NULL);
+		if (launched_rom->opt.threaded_2d_render){
+			task2DGPUTop.execute(&render2DTop, 0);
+			task2DGPUBottom.execute(&render2DBottom, 0);
+		}
 
 		for(;;)
 		{
