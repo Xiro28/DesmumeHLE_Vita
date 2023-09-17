@@ -17,6 +17,11 @@
 
 game_entry *list = NULL;
 
+const char *layout_names[] = {
+	"Default",
+	"Side by Side"
+};
+
 void load_cfg(const char *cfg, game_options *opt) {
 	char buffer[128];
 	int value;
@@ -28,6 +33,7 @@ void load_cfg(const char *cfg, game_options *opt) {
 	opt->has_dynarec = 1;
 	opt->has_sound = 1;
 	opt->frameskip = 1;
+	opt->layout = 0;
 
 	if (config) {
 		while (EOF != fscanf(config, "%[^=]=%d\n", buffer, &value)) {
@@ -35,7 +41,7 @@ void load_cfg(const char *cfg, game_options *opt) {
 			else if (strcmp("depth_resolve_mode", buffer) == 0) opt->depth_resolve_mode = value;
 			else if (strcmp("has_dynarec", buffer) == 0) opt->has_dynarec = value;
 			else if (strcmp("has_sound", buffer) == 0) opt->has_sound = value;
-			else if (strcmp("frameskip", buffer) == 0) opt->frameskip = value;
+			else if (strcmp("layout", buffer) == 0) opt->layout = value;
 		}
 		fclose(config);
 	}
@@ -53,6 +59,7 @@ void save_cfg(game_entry *e) {
 	fprintf(f, "%s=%hhu\n", "has_dynarec", (int)e->opt.has_dynarec);
 	fprintf(f, "%s=%hhu\n", "has_sound", (int)e->opt.has_sound);
 	fprintf(f, "%s=%d\n", "frameskip", (int)e->opt.frameskip);
+	fprintf(f, "%s=%d\n", "layout", (int)e->opt.layout);
 	fclose(f);
 }
 
@@ -87,20 +94,26 @@ char *menu_FileBrowser() {
 	uint32_t oldpad;
 	SceCtrlData pad;
 	int focus = 0;
+	int focus_changed = 0;
 	printf("Starting menu loop\n");
 	while (!r) {
 		sceCtrlPeekBufferPositive(0, &pad, 1);
 		if ((pad.buttons & SCE_CTRL_LTRIGGER) && !(oldpad & SCE_CTRL_LTRIGGER)) {
 			focus = 0;
+			focus_changed = 1;
 		} else if ((pad.buttons & SCE_CTRL_RTRIGGER) && !(oldpad & SCE_CTRL_RTRIGGER)) {
 			focus = 1;
+			focus_changed = 1;
 		}
 		oldpad = pad.buttons;
 		ImGui_ImplVitaGL_NewFrame();
 		game_entry *e = list;
 		ImGui::SetNextWindowPos(ImVec2(0, 0), ImGuiSetCond_Always);
 		ImGui::SetNextWindowSize(ImVec2(600, 544), ImGuiSetCond_Always);
-		if (focus == 0) ImGui::SetNextWindowFocus();
+		if (focus == 0 && focus_changed) {
+			ImGui::SetNextWindowFocus();
+			focus_changed = 0;
+		}
 		ImGui::Begin("##main", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus);
 		while (e) {
 			if (ImGui::Button(e->name, ImVec2(-1.0f, 0.0f))) {
@@ -112,15 +125,32 @@ char *menu_FileBrowser() {
 			e = e->next;
 		}
 		ImGui::End();
-		if (focus == 1) ImGui::SetNextWindowFocus();
+		if (focus == 1 && focus_changed) {
+			ImGui::SetNextWindowFocus();
+			focus_changed = 0;
+		}
 		ImGui::SetNextWindowPos(ImVec2(600, 0), ImGuiSetCond_Always);
 		ImGui::SetNextWindowSize(ImVec2(360, 544), ImGuiSetCond_Always);
 		ImGui::Begin("##options", nullptr, ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoCollapse | ImGuiWindowFlags_NoBringToFrontOnFocus | ImGuiWindowFlags_NoFocusOnAppearing);
 		if (focused) {
 			ImGui::Checkbox("Use Dynarec", (bool *)&focused->opt.has_dynarec);
 			ImGui::Checkbox("Emulate Sound", (bool *)&focused->opt.has_sound);
+			ImGui::PushItemWidth(100.0f);
 			ImGui::SliderInt("Frameskip", &focused->opt.frameskip, 0, 9);
+			ImGui::PopItemWidth();
 			ImGui::Separator();
+			ImGui::PushItemWidth(150.0f);
+			if (ImGui::BeginCombo("Screens Layout", layout_names[focused->opt.layout])) {
+				for (int n = 0; n < sizeof(layout_names) / sizeof(*layout_names); n++) {
+					bool is_selected = focused->opt.layout == n;
+					if (ImGui::Selectable(layout_names[n], is_selected))
+						focused->opt.layout = n;
+					if (is_selected)
+						ImGui::SetItemDefaultFocus();
+				}
+				ImGui::EndCombo();
+			}
+			ImGui::PopItemWidth();
 			ImGui::Checkbox("Alternate Depth Resolve Mode", (bool *)&focused->opt.depth_resolve_mode);
 			ImGui::Checkbox("Threaded 2D Rendering", (bool *)&focused->opt.threaded_2d_render);
 		}

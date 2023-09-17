@@ -7,6 +7,7 @@
 #include <vitaGL.h>
 
 #include "../GPU.h"
+#include "config.h"
 
 #define PI 3.14159265
 
@@ -34,7 +35,40 @@ extern uint32_t bottom_screen_tex;
 extern uint32_t top_changed;
 extern uint32_t bottom_changed;
 
-void video_DrawFrame(){
+// Default Layout
+float vtx_main_default[4 * 2] = {
+	304, 544,
+	304 + 352, 544,
+	304,   0,
+	304 + 352,   0
+};
+float vtx_3d_top_default[4 * 2] = {
+	304, 272,
+	304 + 352, 272,
+	304,   0,
+	304 + 352,   0
+};
+float vtx_3d_bottom_default[4 * 2] = {
+	304, 272,
+	304 + 352, 272,
+	304,   0,
+	304 + 352,   0
+};
+// Side by Side
+float vtx_3d_top_side_by_side[4 * 2] = {
+	0, 92 + 360,
+	480, 92 + 360,
+	0,   92,
+	480, 92
+};
+float vtx_3d_bottom_side_by_side[4 * 2] = {
+	480, 92 + 360,
+	960, 92 + 360,
+	480,   92,
+	960, 92
+};
+
+void video_DrawFrame() {
 	glViewport(0, 0, 960, 544);
 	glClear(GL_COLOR_BUFFER_BIT);
 	extern char fps_str[32];
@@ -56,19 +90,25 @@ void video_DrawFrame(){
 	glOrthof(0, 960, 544, 0, 0, 1);
 	glMatrixMode(GL_MODELVIEW);
 	glLoadIdentity();
-	float vtx[4 * 2] = {
-		304, 544,
-		304 + 352, 544,
-		304,   0,
-		304 + 352,   0
-	};
+	float *vtx;
+	float *vtx_top;
+	float *vtx_bottom;
+	if (launched_rom->opt.layout == LAYOUT_DEFAULT) {
+		vtx = vtx_main_default;
+		vtx_top = vtx_3d_top_default;
+		vtx_bottom = vtx_3d_bottom_default;
+	} else if (launched_rom->opt.layout == LAYOUT_SIDE_BY_SIDE) {
+		vtx = NULL;
+		vtx_top = vtx_3d_top_side_by_side;
+		vtx_bottom = vtx_3d_bottom_side_by_side;
+	}
 	float txcoord[4 * 2] = {
 		0,   1,
 		1,   1,
 		0,   0,
 		1,   0
 	};
-	float txcoord2[4 * 2] = {
+	float txcoord_flipped[4 * 2] = {
 		0,   0,
 		1,   0,
 		0,   1,
@@ -76,34 +116,43 @@ void video_DrawFrame(){
 	};
 	glEnableClientState(GL_VERTEX_ARRAY);
 	glEnableClientState(GL_TEXTURE_COORD_ARRAY);
-	glVertexPointer(2, GL_FLOAT, 0, vtx);
-	glTexCoordPointer(2, GL_FLOAT, 0, txcoord);
-	glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	if (vtx) {
+		glVertexPointer(2, GL_FLOAT, 0, vtx);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	} else {
+		float txcoord_top[4 * 2] = {
+			0, 0.5f,
+			1.0f, 0.5f,
+			0, 0,
+			1.0f, 0
+		};
+		float txcoord_bottom[4 * 2] = {
+			0.0f, 1.0f,
+			1.0f, 1.0f,
+			0.0f, 0.5f,
+			1.0f, 0.5f
+		};
+		glVertexPointer(2, GL_FLOAT, 0, vtx_top);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_top);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+		glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_bottom);
+		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
+	}
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 	if (top_changed) {
 		glBindTexture(GL_TEXTURE_2D, top_screen_tex);
-		float vtx_top[4 * 2] = {
-			304, 272,
-			304 + 352, 272,
-			304,   0,
-			304 + 352,   0
-		};
 		glVertexPointer(2, GL_FLOAT, 0, vtx_top);
-		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_flipped);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		top_changed--;
 	}
 	if (bottom_changed) {
 		glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
-		float vtx_bottom[4 * 2] = {
-			304, 544,
-			304 + 352, 544,
-			304,   272,
-			304 + 352,   272
-		};
 		glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
-		glTexCoordPointer(2, GL_FLOAT, 0, txcoord2);
+		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_flipped);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
 		bottom_changed--;
 	}
