@@ -7,6 +7,7 @@ typedef struct game_options {
 	uint8_t has_dynarec;
 	uint8_t has_sound;
 	int frameskip;
+	int layout;
 } game_options;
 
 typedef struct game_entry {
@@ -16,5 +17,10 @@ typedef struct game_entry {
 } game_entry;
 
 extern game_entry *launched_rom;
+
+enum {
+	LAYOUT_DEFAULT,
+	LAYOUT_SIDE_BY_SIDE
+};
 
 #endif
