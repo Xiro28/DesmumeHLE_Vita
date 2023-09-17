@@ -92,7 +92,7 @@ NDSSystem nds;
 CFIRMWARE	*firmware = NULL;
 
 Task task2DGPUTop;
-Task task2DGPUBottom;
+//Task task2DGPUBottom;
 
 using std::min;
 using std::max;
@@ -199,7 +199,7 @@ int NDS_Init()
 	cheatSearch = new CHEATSEARCH();
 
 	task2DGPUTop.start(false);
-	task2DGPUBottom.start(false);
+	//task2DGPUBottom.start(false);
 
 	return 0;
 }
@@ -1354,8 +1354,20 @@ typedef enum {
 
 extern "C" void *vglAlloc(uint32_t size, vglMemType type);
 
+static void * render2D(void *arg) {
 
-static void * render2DTop(void *arg) {
+    // Perform rendering operations here
+	const bool skip = frameSkipper.ShouldSkip2D();
+
+	for (int l = 0; l < 192; ++l) 
+		GPU->RenderLine<NDSColorFormat_BGR555_Rev>(l, skip);
+	
+
+	return 0;
+}
+
+
+/*static void * render2DTop(void *arg) {
 
 	GPUEngineA* engine = GPU->GetEngineMain();
 
@@ -1413,7 +1425,7 @@ static void * render2DBottom(void *arg) {
 	engine->FramebufferPostprocess();
 
 	return 0;
-}
+}*/
 
 static void execHardware_hblank()
 {
@@ -2018,8 +2030,8 @@ void NDS_exec(s32 nb)
 	else
 	{
 		if (launched_rom->opt.threaded_2d_render){
-			task2DGPUTop.execute(&render2DTop, 0);
-			task2DGPUBottom.execute(&render2DBottom, 0);
+			task2DGPUTop.execute(&render2D, 0);
+			//task2DGPUBottom.execute(&render2DBottom, 0);
 		}
 
 		for(;;)
