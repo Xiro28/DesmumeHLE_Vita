@@ -181,15 +181,10 @@ static const ArmOpCompiled op_decode[2][2] = { OP_DECODE<0,0>, OP_DECODE<0,1>, O
 template<int thumb>
 static u32 FASTCALL FAST_OP_DECODE(u32 opcode)
 {
-   u32 cycles;
+   if(TEST_COND(CONDITION(opcode), CODE(opcode), NDS_ARM9.CPSR))
+      return arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)](opcode);
 
-   if(CONDITION(opcode) == 0xE || TEST_COND(CONDITION(opcode), CODE(opcode), NDS_ARM9.CPSR))
-      cycles = arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)](opcode);
-   else
-      cycles = 1;
-      
-   NDS_ARM9.instruct_adr = NDS_ARM9.next_instruction;
-   return cycles;
+   return 1;
 }
 
 
@@ -1461,16 +1456,17 @@ static ArmOpCompiled compile_basicblock()
 
             if (thumb)
                block->load_constant(1, (uint32_t)thumb_instructions_set[ARM9][opcode>>6]);
-            else
-               block->load_constant(1, (uint32_t)&FAST_OP_DECODE<0>);
+            else{
+               if (CONDITION(opcode) == 0xE)
+                  block->load_constant(1, (uint32_t)arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)]);
+               else
+                  block->load_constant(1, (uint32_t)&FAST_OP_DECODE<0>);
+            }
 
             call(1);
 
-            if (thumb)
-            {
-               block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
-               block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
-            }
+            block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
+            block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
 
             block->add(RCYC, alu2::reg(0));
 
