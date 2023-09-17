@@ -28,6 +28,7 @@
 #include "reg_manager.h"
 using namespace arm_gen;
 
+#include "Disassembler.h"
 #include "instructions.h"
 #include "instruction_attributes.h"
 #include "MMU.h"
@@ -203,6 +204,7 @@ static u8 recompile_counts[(1<<26)/16];
 const reg_t RCPU = 12;
 const reg_t RCYC = 4;
 static uint32_t block_procnum;
+bool block_contains_swi = false;
 
 ///////
 // HELPERS
@@ -823,7 +825,10 @@ static OP_RESULT ARM_OP_B_BL(uint32_t pc, uint32_t opcode)
 #define ARM_OP_CDP 0
 #define ARM_OP_MCR 0
 #define ARM_OP_MRC 0
-#define ARM_OP_SWI 0
+static OP_RESULT ARM_OP_SWI(uint32_t pc, uint32_t opcode){
+   block_contains_swi = true;
+   return OPR_INTERPRET;
+}
 #define ARM_OP_UND 0
 static const ArmOpCompiler arm_instruction_compilers[4096] = {
 #define TABDECL(x) ARM_##x
@@ -1425,9 +1430,9 @@ static ArmOpCompiled compile_basicblock()
    load_status(3);
 
    uint32_t opcode = 0;
-   bool intr = false;
+   uint32_t n_ops = 0;
 
-   for (uint32_t i = 0; i < CommonSettings.jit_max_block_size && !has_ended; i ++, pc += isize)
+   for (; n_ops < CommonSettings.jit_max_block_size && !has_ended; n_ops ++, pc += isize)
    {
       opcode = thumb ? _MMU_read16<PROCNUM, MMU_AT_CODE>(pc) : _MMU_read32<PROCNUM, MMU_AT_CODE>(pc);
 
@@ -1435,8 +1440,6 @@ static ArmOpCompiled compile_basicblock()
                                      : arm_instruction_compilers[INSTRUCTION_INDEX(opcode)];
 
       int result = compiler ? compiler(pc, opcode) : OPR_INTERPRET;
-
-      intr = false;
 
       constant_cycles += OPR_RESULT_CYCLES(result);
       switch (OPR_RESULT_ACTION(result))
@@ -1465,14 +1468,12 @@ static ArmOpCompiled compile_basicblock()
 
             call(1);
 
+            block->add(RCYC, alu2::reg(0));
+            
             block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
             block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
 
-            block->add(RCYC, alu2::reg(0));
-
             has_ended = has_ended || instr_is_branch(thumb, opcode);
-
-            intr = true;
 
             break;
          }
@@ -1509,6 +1510,29 @@ static ArmOpCompiled compile_basicblock()
    regman->flush_all();
    regman->reset();
 
+   //Debug if we can optimize some blocks 
+   if (block_contains_swi && 0) {
+
+      u32 dism_pc = base;
+
+      printf("--------------DIS-------------\n");
+      printf((!thumb) ? "ARM: %X\n" : "THB: %X\n", base);
+      for (int i = 0; i < n_ops; ++i, dism_pc+=isize){
+         char out[256];
+
+         opcode = thumb ? _MMU_read16<PROCNUM, MMU_AT_CODE>(dism_pc) : _MMU_read32<PROCNUM, MMU_AT_CODE>(dism_pc);
+
+         if (!thumb)
+            des_arm_instructions_set[INSTRUCTION_INDEX(opcode)](dism_pc, opcode, out);
+         else
+            des_thumb_instructions_set[opcode>>6](dism_pc, opcode, out);
+
+         printf("%s\n", out);
+      }
+
+      printf("\n\n");
+   }
+
    block->load_constant(1, constant_cycles);
    block->add(0, 1, alu2::reg(RCYC));
 
@@ -1537,6 +1561,8 @@ template<int PROCNUM> u32 arm_jit_compile()
    {
       arm_jit_reset(true);
    }
+
+   block_contains_swi = false;
 
    return compile_basicblock<PROCNUM>()();
 }
