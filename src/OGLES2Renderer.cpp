@@ -33,7 +33,6 @@
 
 uint32_t top_screen_fbo, bottom_screen_fbo;
 uint32_t top_screen_tex, bottom_screen_tex;
-uint32_t top_changed = 0, bottom_changed = 0;
 
 // Lookup Tables
 CACHE_ALIGN GLuint dsDepthToD24S8_LUT[32768] = {0};
@@ -958,10 +957,8 @@ Render3DError OpenGLES2Renderer::SelectRenderingFramebuffer()
 #ifdef __vita__
 	if (GPU->GetDisplayMain()->GetEngineID() == GPUEngineID_Main) {
 		glBindFramebuffer(GL_FRAMEBUFFER, top_screen_fbo);
-		top_changed = 3;
 	} else {
 		glBindFramebuffer(GL_FRAMEBUFFER, bottom_screen_fbo);
-		bottom_changed = 3;
 	}
 #else
 	OGLRef.selectedRenderingFBO = OGLRef.fboFinalOutputID;

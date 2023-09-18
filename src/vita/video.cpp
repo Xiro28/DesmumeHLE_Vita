@@ -142,20 +142,20 @@ void video_DrawFrame() {
 	}
 	glEnable(GL_BLEND);
 	glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-	if (top_changed) {
+
+	if (GPU->GetEngineMain()->WillRender3DLayer() && GPU->GetDisplayMain()->GetEngineID() == GPUEngineID_Main) {
 		glBindTexture(GL_TEXTURE_2D, top_screen_tex);
 		glVertexPointer(2, GL_FLOAT, 0, vtx_top);
 		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_flipped);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		top_changed--;
-	}
-	if (bottom_changed) {
+	}else
+	if (GPU->GetEngineMain()->WillRender3DLayer()) {
 		glBindTexture(GL_TEXTURE_2D, bottom_screen_tex);
 		glVertexPointer(2, GL_FLOAT, 0, vtx_bottom);
 		glTexCoordPointer(2, GL_FLOAT, 0, txcoord_flipped);
 		glDrawArrays(GL_TRIANGLE_STRIP, 0, 4);
-		bottom_changed--;
 	}
+
 	glUseProgram(old_prog);
 	glEnable(GL_DEPTH_TEST);
 }
