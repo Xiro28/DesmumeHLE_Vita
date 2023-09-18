@@ -613,51 +613,43 @@ void GameInfo::closeROM()
 	lastReadPos = 0xFFFFFFFF;
 }
 
+#include <unordered_map>
+
+std::unordered_map<u32, u32> cached_rom;
+
+#define cached_rom_size 1024 * 1024 * 2 
+
 u32 GameInfo::readROM(u32 pos)
 {
-	u32 num;
-	u32 data;
-	if (!romdata)
+	if (cached_rom.size() > cached_rom_size) cached_rom.clear();
+
+	u32 data = cached_rom[pos];
+
+	if (!data)
 	{
 		if (lastReadPos != pos)
 			reader->Seek(fROM, pos + headerOffset, SEEK_SET);
-		num = reader->Read(fROM, &data, 4);
+		
+		u32 num = reader->Read(fROM, &data, 4);
+
+		//in case we didn't read enough data, pad the remainder with 0xFF
+		u32 pad = 0;
+		while(num<4)
+		{
+			pad >>= 8;
+			pad |= 0xFF000000;
+			num++;
+		}
+
 		lastReadPos = (pos + num);
-	}
-	else
-	{
-		if(pos + 4 <= romsize)
-		{
-			//fast path
-			data = LE_TO_LOCAL_32(*(u32*)(romdata + pos));
-			num = 4;
-		}
-		else
-		{
-			data = 0;
-			num = 0;
-			for(int i=0;i<4;i++)
-			{
-				if(pos >= romsize)
-					break;
-				data |= (romdata[pos]<<(i*8));
-				pos++;
-				num++;
-			}
-		}
-	}
 
+		data = LE_TO_LOCAL_32(data) & ~pad | pad;
 
-	//in case we didn't read enough data, pad the remainder with 0xFF
-	u32 pad = 0;
-	while(num<4)
-	{
-		pad >>= 8;
-		pad |= 0xFF000000;
-		num++;
-	}
+		cached_rom[pos] = data;
 
-	return (LE_TO_LOCAL_32(data) & ~pad) | pad;
+		return data;
+	}else
+		return data;
 }
 
 bool GameInfo::isDSiEnhanced()

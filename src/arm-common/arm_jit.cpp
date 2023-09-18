@@ -1482,7 +1482,7 @@ static ArmOpCompiled compile_basicblock()
                block->add(RCYC, alu2::reg(0), cond);
             }
 
-            if (instr_is_branch(thumb, opcode))
+            if (has_ended)
             {
                block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
                block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
@@ -1505,12 +1505,6 @@ static ArmOpCompiled compile_basicblock()
          }
       }
    }
-
-   /*if(!instr_does_prefetch(thumb, opcode))
-	{
-      block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
-      block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
-	}*/
 
    if (compiled_op)
    {
