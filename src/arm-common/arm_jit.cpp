@@ -261,6 +261,17 @@ static void call(reg_t reg)
    load_status(3);
 }
 
+static void call_cond(reg_t reg, AG_COND cond = AL)
+{
+   write_status(3);
+   block->blx(reg, cond);
+
+   const unsigned PROCNUM = block_procnum;
+   block->load_constant(RCPU, (uint32_t)&ARMPROC);
+
+   load_status(3);
+}
+
 static void change_mode(bool thumb)
 {
    block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, CPSR)));
@@ -1425,7 +1436,7 @@ static ArmOpCompiled compile_basicblock()
    block->push(0x4DF0);
 
    block->load_constant(RCPU, (uint32_t)&ARMPROC);
-   block->load_constant(RCYC, 0);
+   block->load_constant(RCYC, 1); //min cycle is 1
 
    load_status(3);
 
@@ -1446,34 +1457,36 @@ static ArmOpCompiled compile_basicblock()
       {
          case OPR_INTERPRET:
          {
-            //if (compiled_op)
-            {
-               arm_jit_prefetch<PROCNUM>(pc, opcode, thumb);
-               compiled_op = false;
-            }
+            
+            has_ended = has_ended || instr_is_branch(thumb, opcode);
+
+            arm_jit_prefetch<PROCNUM>(pc, opcode, thumb);
+            compiled_op = false;
 
             regman->flush_all();
             regman->reset();
 
-            block->load_constant(0, opcode);
-
-            if (thumb)
+            if (thumb){
+               block->load_constant(0, opcode);
                block->load_constant(1, (uint32_t)thumb_instructions_set[ARM9][opcode>>6]);
+               
+               call(1);
+               block->add(RCYC, alu2::reg(0));
+            }
             else{
-               if (CONDITION(opcode) == 0xE)
-                  block->load_constant(1, (uint32_t)arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)]);
-               else
-                  block->load_constant(1, (uint32_t)&FAST_OP_DECODE<0>);
+               const AG_COND cond = (AG_COND)bit(opcode, 28, 4);
+               
+               block->load_constant(0, opcode, cond);
+               block->load_constant(1, (uint32_t)arm_instructions_set[ARM9][INSTRUCTION_INDEX(opcode)], cond);
+               call_cond(1, cond);
+               block->add(RCYC, alu2::reg(0), cond);
             }
 
-            call(1);
-
-            block->add(RCYC, alu2::reg(0));
-            
-            block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
-            block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
-
-            has_ended = has_ended || instr_is_branch(thumb, opcode);
+            if (instr_is_branch(thumb, opcode))
+            {
+               block->ldr(0, RCPU, mem2::imm(offsetof(armcpu_t, next_instruction)));
+               block->str(0, RCPU, mem2::imm(offsetof(armcpu_t, instruct_adr)));
+            }
 
             break;
          }
