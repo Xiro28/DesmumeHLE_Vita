@@ -105,7 +105,7 @@ CFLAGS  += -Wl,-q -Wall -D__psp2__ -DVITA $(foreach dir,$(INCLUDES),-I$(CURDIR)/
 ASFLAGS = $(CFLAGS)
 
 CXX = arm-vita-eabi-g++
-CXXFLAGS = $(CFLAGS)
+CXXFLAGS = $(CFLAGS) -fpermissive
 
 DEPS := $(OBJS:.o=.d)
 

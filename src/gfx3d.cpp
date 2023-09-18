@@ -1589,8 +1589,8 @@ static BOOL gfx3d_glBoxTest(u32 v)
 
 		DS_ALIGN(16) VERT_POS4f vert = { verts[i].x, verts[i].y, verts[i].z, verts[i].w };
 
-		_NOSSE_MatrixMultVec4x4(temp1,verts[i].coord);
-		_NOSSE_MatrixMultVec4x4(temp0,verts[i].coord);
+		MatrixMultVec4x4(temp1,verts[i].coord);
+		MatrixMultVec4x4(temp0,verts[i].coord);
 	}
 
 	//clip each poly

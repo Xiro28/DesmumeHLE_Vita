@@ -24,18 +24,12 @@
 #include "matrix.h"
 #include "MMU.h"
 
-void _NOSSE_MatrixMultVec4x4 (const float *matrix, float *vecPtr)
-{
-	float x = vecPtr[0];
-	float y = vecPtr[1];
-	float z = vecPtr[2];
-	float w = vecPtr[3];
-
-	vecPtr[0] = x * matrix[0] + y * matrix[4] + z * matrix[ 8] + w * matrix[12];
-	vecPtr[1] = x * matrix[1] + y * matrix[5] + z * matrix[ 9] + w * matrix[13];
-	vecPtr[2] = x * matrix[2] + y * matrix[6] + z * matrix[10] + w * matrix[14];
-	vecPtr[3] = x * matrix[3] + y * matrix[7] + z * matrix[11] + w * matrix[15];
+#ifdef __vita__
+#include <vitasdk.h>
+extern "C" {
+#include <math_neon.h>
 }
+#endif
 
 void MatrixMultVec4x4 (const s32 *matrix, s32 *vecPtr)
 {
@@ -66,7 +60,21 @@ void MatrixMultVec3x3_fixed(const s32 *matrix, s32 *vecPtr)
 #ifndef ENABLE_SSE
 void MatrixMultVec4x4 (const float *matrix, float *vecPtr)
 {
-	_NOSSE_MatrixMultVec4x4(matrix, vecPtr);
+#ifdef __vita__
+	float d[4];
+	matvec4_neon(matrix, vecPtr, d);
+	sceClibMemcpy(vecPtr, d, sizeof(float) * 4);
+#else
+	float x = vecPtr[0];
+	float y = vecPtr[1];
+	float z = vecPtr[2];
+	float w = vecPtr[3];
+
+	vecPtr[0] = x * matrix[0] + y * matrix[4] + z * matrix[ 8] + w * matrix[12];
+	vecPtr[1] = x * matrix[1] + y * matrix[5] + z * matrix[ 9] + w * matrix[13];
+	vecPtr[2] = x * matrix[2] + y * matrix[6] + z * matrix[10] + w * matrix[14];
+	vecPtr[3] = x * matrix[3] + y * matrix[7] + z * matrix[11] + w * matrix[15];
+#endif
 }
 
 
@@ -84,7 +92,10 @@ void MatrixMultVec3x3 (const float *matrix, float *vecPtr)
 void MatrixMultiply (float *matrix, const float *rightMatrix)
 {
 	float tmpMatrix[16];
-
+#ifdef __vita__
+	matmul4_neon(matrix, rightMatrix, tmpMatrix);
+	sceClibMemcpy(matrix, tmpMatrix, sizeof(float) * 16);
+#else
 	tmpMatrix[0]  = (matrix[0]*rightMatrix[0])+(matrix[4]*rightMatrix[1])+(matrix[8]*rightMatrix[2])+(matrix[12]*rightMatrix[3]);
 	tmpMatrix[1]  = (matrix[1]*rightMatrix[0])+(matrix[5]*rightMatrix[1])+(matrix[9]*rightMatrix[2])+(matrix[13]*rightMatrix[3]);
 	tmpMatrix[2]  = (matrix[2]*rightMatrix[0])+(matrix[6]*rightMatrix[1])+(matrix[10]*rightMatrix[2])+(matrix[14]*rightMatrix[3]);
@@ -106,6 +117,7 @@ void MatrixMultiply (float *matrix, const float *rightMatrix)
 	tmpMatrix[15] = (matrix[3]*rightMatrix[12])+(matrix[7]*rightMatrix[13])+(matrix[11]*rightMatrix[14])+(matrix[15]*rightMatrix[15]);
 
 	memcpy (matrix, tmpMatrix, sizeof(float)*16);
+#endif
 }
 
 void MatrixTranslate	(float *matrix, const float *ptr)
@@ -174,6 +186,9 @@ void MatrixSet (s32 *matrix, int x, int y, s32 value)
 
 void MatrixCopy (float* matrixDST, const float* matrixSRC)
 {
+#ifdef __vita__
+	sceClibMemcpy(matrixDST, matrixSRC, sizeof(float) * 16);
+#else
 	matrixDST[0] = matrixSRC[0];
 	matrixDST[1] = matrixSRC[1];
 	matrixDST[2] = matrixSRC[2];
@@ -190,12 +205,17 @@ void MatrixCopy (float* matrixDST, const float* matrixSRC)
 	matrixDST[13] = matrixSRC[13];
 	matrixDST[14] = matrixSRC[14];
 	matrixDST[15] = matrixSRC[15];
+#endif
 
 }
 
 void MatrixCopy (s32* matrixDST, const s32* matrixSRC)
 {
+#ifdef __vita__
+	sceClibMemcpy(matrixDST, matrixSRC, sizeof(s32) * 16);
+#else
 	memcpy(matrixDST,matrixSRC,sizeof(s32)*16);
+#endif
 }
 
 int MatrixCompare (const s32* matrixDST, const s32* matrixSRC)
