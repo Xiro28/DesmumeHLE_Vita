@@ -48,11 +48,12 @@ float vtx_3d_top_default[4 * 2] = {
 	304,   0,
 	304 + 352,   0
 };
+
 float vtx_3d_bottom_default[4 * 2] = {
-	304, 272,
-	304 + 352, 272,
-	304,   0,
-	304 + 352,   0
+	304, 544,
+	304 + 352, 544,
+	304,   272,
+	304 + 352,   272
 };
 // Side by Side
 float vtx_3d_top_side_by_side[4 * 2] = {
